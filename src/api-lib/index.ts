@@ -1,15 +1,12 @@
 import http from 'http';
 import url from 'url';
-// Import types for http server callback
 import type { IncomingMessage, ServerResponse } from 'http';
 
-// Re-use the hasOwnProperty type guard if needed, or define locally
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
   (obj: X, prop: Y): obj is X & Record<Y, unknown> {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-// Define a type for the library functions for clarity
 type LibraryFunction = (...args: string[]) => any;
 
 export function runApi(libraries: Record<string, LibraryFunction>[], port: number = 3000) {

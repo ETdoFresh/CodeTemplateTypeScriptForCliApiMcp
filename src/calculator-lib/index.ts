@@ -11,7 +11,7 @@ function parseArgsToNumbers(args: string[]): number[] {
 export function add(...args: string[]): number {
   const nums = parseArgsToNumbers(args);
   if (nums.length === 0) {
-    return 0;
+    throw new Error("Add requires at least one number");
   }
   return nums.reduce((sum, current) => sum + current, 0);
 }
@@ -30,7 +30,7 @@ export function subtract(...args: string[]): number {
 export function multiply(...args: string[]): number {
   const nums = parseArgsToNumbers(args);
   if (nums.length === 0) {
-    return 1; // Identity element for multiplication
+    throw new Error("Multiply requires at least one number")
   }
   return nums.reduce((product, current) => product * current, 1);
 }

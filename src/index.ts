@@ -2,15 +2,17 @@
 
 import * as calculator from './calculator-lib';
 import * as echoLib from './echo-lib';
-import { runArgs } from './args-lib';
+import { runCli } from './cli-lib';
 import { runApi } from './api-lib';
 import { runMcp } from './mcp-lib';
+import { runRepl } from './repl-lib';
 
 const libraries: Record<string, (...args: string[]) => any>[] = [
     calculator,
     echoLib
 ];
 
-runArgs(libraries);
+// runCli(libraries);
 // runApi(libraries);
 // runMcp(libraries);
+runRepl(libraries);
