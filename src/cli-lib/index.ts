@@ -1,8 +1,4 @@
-import * as calculator from '../calculator-lib';
-
-const libraries = [
-    calculator
-]
+// Move libraries definition outside
 
 // Type guard to check if a key exists on an object
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
@@ -10,12 +6,15 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
   return obj.hasOwnProperty(prop);
 }
 
-function runCli() {
+// Modify runCli to accept libraries and export it
+export function runCli(libraries: Record<string, Function>[]) {
   const args = process.argv.slice(2); // Remove 'node' and script path
 
   if (args.length < 1) {
     console.error('Usage: <command> [arguments...]');
-    console.error('Available commands:', Object.keys(calculator).join(', '));
+    // Update error message to use passed-in libraries
+    const availableCommands = libraries.flatMap(lib => Object.keys(lib)).join(', ');
+    console.error('Available commands:', availableCommands);
     process.exit(1);
   }
 
@@ -52,5 +51,3 @@ function runCli() {
   console.error('Available commands:', availableCommands);
   process.exit(1);
 }
-
-runCli();
