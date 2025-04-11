@@ -1,10 +1,10 @@
 import * as calculator from './calculator-lib';
 import * as echoLib from './echo-lib';
-import { runCli } from './cli-lib';
+import { runApi } from './api-lib';
 
-const libraries = [
+const libraries: Record<string, (...args: string[]) => any>[] = [
     calculator,
     echoLib
 ];
 
-runCli(libraries);
+runApi(libraries);
