@@ -1,5 +1,3 @@
-// Move libraries definition outside
-
 // Type guard to check if a key exists on an object
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
   (obj: X, prop: Y): obj is X & Record<Y, unknown> {

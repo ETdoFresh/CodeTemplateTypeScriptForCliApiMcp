@@ -5,5 +5,4 @@ const libraries = [
     calculator
 ];
 
-// Call the imported runCli function with the libraries
-runCli(libraries); 
+runCli(libraries);
