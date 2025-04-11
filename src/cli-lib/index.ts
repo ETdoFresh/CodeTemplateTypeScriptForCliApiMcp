@@ -17,19 +17,14 @@ export function runCli(libraries: Record<string, Function>[]) {
   }
 
   const commandName = args[0];
-  const commandArgs = args.slice(1).map(arg => {
-    const num = parseFloat(arg);
-    if (isNaN(num)) {
-      console.error(`Error: Argument '${arg}' is not a valid number.`);
-      process.exit(1);
-    }
-    return num;
-  });
+  // Keep arguments as strings
+  const commandArgs = args.slice(1);
 
   for (const library of libraries) {
     if (hasOwnProperty(library, commandName) && typeof library[commandName] === 'function') {
       try {
-        const func = library[commandName] as (...args: number[]) => number; // Type assertion
+        // Adjust type assertion to handle string args and potentially non-number return types
+        const func = library[commandName] as (...args: string[]) => any;
         const result = func(...commandArgs);
         console.log(result);
         process.exit(0); // Exit successfully after execution
