@@ -2,7 +2,7 @@
 
 import * as calculator from './calculator-lib';
 import * as echoLib from './echo-lib';
-import { runCli } from './cli-lib';
+import { runArgs } from './args-lib';
 import { runApi } from './api-lib';
 import { runMcp } from './mcp-lib';
 
@@ -11,6 +11,6 @@ const libraries: Record<string, (...args: string[]) => any>[] = [
     echoLib
 ];
 
-// runCli(libraries);
+runArgs(libraries);
 // runApi(libraries);
-runMcp(libraries);
+// runMcp(libraries);

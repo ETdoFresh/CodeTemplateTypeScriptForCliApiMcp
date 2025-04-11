@@ -7,7 +7,7 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
 type LibraryFunction = (...args: string[]) => any;
 
 // Modify runCli to accept libraries and export it
-export const runCli = (libraries: Record<string, LibraryFunction>[]) => {
+export const runArgs = (libraries: Record<string, LibraryFunction>[]) => {
   const args = process.argv.slice(2); // Remove 'node' and script path
 
   if (args.length < 1) {
