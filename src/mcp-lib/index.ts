@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from 'zod';
+// Use 'import type' for type-only imports in CommonJS
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 // Define a generic input schema for functions accepting string arguments

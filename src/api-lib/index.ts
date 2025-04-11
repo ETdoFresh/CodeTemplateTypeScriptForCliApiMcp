@@ -1,5 +1,7 @@
 import http from 'http';
 import url from 'url';
+// Import types for http server callback
+import type { IncomingMessage, ServerResponse } from 'http';
 
 // Re-use the hasOwnProperty type guard if needed, or define locally
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
@@ -11,7 +13,7 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
 type LibraryFunction = (...args: string[]) => any;
 
 export function runApi(libraries: Record<string, LibraryFunction>[], port: number = 3000) {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
     const parsedUrl = url.parse(req.url || '', true);
     const pathname = parsedUrl.pathname || '';
     const commandName = pathname.substring(1); // Remove leading '/'
