@@ -5,9 +5,11 @@ import {
     processArgs,
     executeParsedCommands
 } from './shared.js';
+// Update import path to point to zod-function-utils
+import { DefinedFunctionModule } from '../../utils/zod-function-utils.js';
 
 // --- CLI Entry Point ---
-export const runCli = (libraries: Record<string, ZodFunction<any, any>>[]) => {
+export const runCli = (libraries: DefinedFunctionModule[]) => {
   // REVERT: Read process.argv directly
   const rawArgs = process.argv.slice(2);
   let commands: Command[];

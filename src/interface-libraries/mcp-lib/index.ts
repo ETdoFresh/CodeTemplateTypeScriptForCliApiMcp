@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z, ZodFunction } from 'zod';
+import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodError } from 'zod';
+import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js';
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
@@ -29,50 +30,8 @@ function parseStringsToNumbers(args: string[]): number[] {
 
 // --- Server Setup and Dynamic Registration --- 
 
-// Helper to build a Zod schema from __argTypes
-function buildZodSchema(argTypeDefs: ArgInfo[], commandName: string): z.ZodObject<any> {
-    const shape: Record<string, z.ZodTypeAny> = {};
-    let hasRestParam = false;
-
-    for (const argDef of argTypeDefs) {
-        let zodType: z.ZodTypeAny;
-        const isRest = argDef.type.startsWith('...');
-        const baseType = argDef.type.replace('...', '');
-
-        switch (baseType) {
-            case 'string': zodType = z.string(); break;
-            case 'number': zodType = z.number(); break;
-            case 'boolean': zodType = z.boolean(); break;
-            case 'string[]': zodType = z.array(z.string()); break;
-            case 'number[]': zodType = z.array(z.number()); break;
-            case 'boolean[]': zodType = z.array(z.boolean()); break;
-            default: throw new Error(`Unsupported ArgType '${argDef.type}' for Zod schema generation in command '${commandName}'.`);
-        }
-
-        if (isRest) {
-            if (hasRestParam) {
-                console.warn(`[${commandName}] Multiple rest parameters defined in __argTypes. Only the first one will be used for Zod schema.`);
-                continue; // Skip subsequent rest params for schema
-            }
-            // Rest parameter becomes an optional array in the Zod schema
-            shape[argDef.name] = z.array((zodType as z.ZodArray<any>)._def.type).optional().describe(`Rest arguments for ${argDef.name}`);
-            hasRestParam = true;
-        } else {
-            // Non-rest parameters
-            // Check if the argument is marked as optional in __argTypes
-            if (argDef.optional) {
-                shape[argDef.name] = zodType.optional().describe(`Argument ${argDef.name}`);
-            } else {
-                // Otherwise, it remains required (Zod default)
-                shape[argDef.name] = zodType.describe(`Argument ${argDef.name}`);
-            }
-        }
-    }
-    return z.object(shape);
-}
-
-// Make runMcp accept the libraries and export it
-export async function runMcp(libraries: Record<string, ZodFunction<any, any>>[]) {
+// Make runMcp accept the updated library type and export it
+export async function runMcp(libraries: DefinedFunctionModule[]) {
 
   const server = new McpServer({
     name: "mcp-dynamic-lib-server",
@@ -81,88 +40,117 @@ export async function runMcp(libraries: Record<string, ZodFunction<any, any>>[])
 
   console.error("Registering tools dynamically...");
   const registeredToolNames: string[] = []; // Array to track registered tools
-  // Identify calculator commands
-  const calculatorCommands = ['add', 'subtract', 'multiply', 'divide'];
+  // Identify calculator commands (this logic might need review if not using __argTypes)
+  // const calculatorCommands = ['add', 'subtract', 'multiply', 'divide'];
 
   // Iterate through each library object provided
   for (const library of libraries) {
     // Iterate through the exported keys (function names) in the library
     for (const funcName in library) {
-      // Check if the property is a function and owned by the object (not inherited)
-      if (Object.prototype.hasOwnProperty.call(library, funcName) && typeof library[funcName] === 'function') {
-        const originalFunction = library[funcName];
-        const isCalculatorCommand = calculatorCommands.includes(funcName);
+      // Check if the property is a function and owned by the object
+      if (Object.prototype.hasOwnProperty.call(library, funcName)) {
+        const func = library[funcName];
 
-        // Get __argTypes for the function
-        const argTypeDefs = originalFunction.__argTypes || [];
-
-        // Dynamically build Zod schema based on __argTypes
-        let inputSchema: z.ZodObject<any>;
-        try {
-            inputSchema = buildZodSchema(argTypeDefs, funcName);
-        } catch (schemaError: any) {
-            console.error(`[${funcName}] Error building Zod schema: ${schemaError.message}. Skipping tool registration.`);
-            continue; // Skip this tool if schema fails
+        // Check if it's a DefinedFunction by looking for _def
+        if (!(typeof func === 'function' && func._def)) {
+             console.warn(`[${funcName}] Skipping registration: Not a DefinedFunction (missing _def).`);
+             continue;
         }
+        const definedFunc = func; // Type is now DefinedFunction
+        const zodDef = definedFunc._def; // Access the Zod definition
 
-        // Create the MCP handler using the dynamic schema and __argTypes validation
+        // Get Zod schema directly from the definition
+        // We expect the arguments to be a ZodTuple
+        if (!(zodDef.args instanceof ZodTuple)) {
+             // Safer access to constructor name
+             const argTypeName = zodDef.args ? Object.getPrototypeOf(zodDef.args)?.constructor?.name : 'undefined';
+             console.error(`[${funcName}] Error: Expected ZodTuple for args in _def, but got ${argTypeName}. Skipping tool registration.`);
+             continue;
+        }
+        const argTupleSchema = zodDef.args as ZodTuple<any, any>;
+
+        // --- Build the Input Object Schema for MCP from the ZodTuple --- 
+        const inputShape: Record<string, ZodTypeAny> = {};
+        let argNames: string[] = [];
+        let restArgName: string | undefined;
+
+        // Process fixed tuple arguments
+        argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
+            const name = itemSchema.description || `arg${index}`;
+            if (inputShape[name]) {
+                console.warn(`[${zodDef.description || funcName}] Duplicate argument name/description '${name}'. Overwriting.`);
+            }
+             // Zod types are directly usable in MCP schema shape
+            inputShape[name] = itemSchema;
+            argNames.push(name);
+        });
+
+        // Process rest argument
+        if (argTupleSchema._def.rest) {
+            const restSchema = argTupleSchema._def.rest as ZodTypeAny;
+            restArgName = restSchema.description || 'restArgs';
+            if (inputShape[restArgName]) {
+                console.warn(`[${zodDef.description || funcName}] Duplicate name/description '${restArgName}' for rest parameter. Overwriting.`);
+            }
+             // MCP expects rest args as an optional array in the input object
+            let mcpRestType = z.array(restSchema).optional();
+            if(restSchema.description) {
+                mcpRestType = mcpRestType.describe(restSchema.description);
+            }
+            inputShape[restArgName] = mcpRestType;
+        }
+        const mcpInputSchema = z.object(inputShape);
+
+        // Create the MCP handler using the Zod definition for validation
         const mcpHandler = async (inputArgs: unknown): Promise<CallToolResult> => {
             try {
-                // 1. Validate input against the dynamically generated Zod schema
-                const parsedInput = inputSchema.parse(inputArgs);
-                const finalArgs: any[] = [];
+                // 1. Validate input against the derived MCP input schema
+                const parsedInput = mcpInputSchema.parse(inputArgs);
+                const finalCallArgs: any[] = [];
 
-                // 2. Process arguments based on __argTypes, using shared validateType
-                for (let i = 0; i < argTypeDefs.length; i++) {
-                    const argDef = argTypeDefs[i];
-                    const isRestParam = argDef.type.startsWith('...');
-                    let argValue: any;
-
-                    if (!hasOwnProperty(parsedInput, argDef.name)) {
-                        if (isRestParam) {
-                            argValue = []; // Default empty for missing optional rest param
-                        } else {
-                            // This should ideally be caught by Zod if param is required
-                            throw new Error(`Internal Error: Missing required argument '${argDef.name}' after Zod validation.`);
-                        }
-                    } else {
-                        argValue = parsedInput[argDef.name];
-                    }
-
-                    // 3. Use the shared validateType (optional redundancy, Zod mostly covers it)
-                    // validateType(argValue, argDef.type, argDef.name, funcName);
-
-                    if (isRestParam) {
-                        finalArgs.push(...argValue); // Spread rest args
-                    } else {
-                        finalArgs.push(argValue);
-                    }
+                // 2. Map parsed object args back to tuple/spread format for the original function
+                argNames.forEach(name => {
+                    // Handle potential undefined if schema part was optional and not provided
+                    finalCallArgs.push(parsedInput[name]);
+                });
+                if (restArgName && parsedInput[restArgName]) {
+                    finalCallArgs.push(...(parsedInput[restArgName] as any[]));
                 }
 
-                // 4. Execute the original function
-                const result = originalFunction(...finalArgs);
+                // 3. Execute the original function (which is definedFunc)
+                // Use await if the original function might be async (check zodDef.returns?)
+                let result;
+                if (zodDef.returns instanceof z.ZodPromise) {
+                    result = await definedFunc(...finalCallArgs);
+                } else {
+                    result = definedFunc(...finalCallArgs);
+                }
 
-                // 5. Format and return result
+                // 4. Format and return result
                 const resultString = typeof result === 'string' ? result : JSON.stringify(result);
                 return {
                     content: [{ type: "text", text: resultString }],
                 };
             } catch (error: any) {
                 // Handle errors during parsing or execution
+                const errorMsg = error instanceof ZodError
+                    // Explicitly type 'e' in map callback
+                    ? `Invalid input: ${error.errors.map((e: z.ZodIssue) => `'${e.path.join('.')}' ${e.message}`).join(', ')}`
+                    : error.message;
                 return {
-                    content: [{ type: "text", text: `Error in ${funcName}: ${error.message}` }],
+                    content: [{ type: "text", text: `Error in ${zodDef.description || funcName}: ${errorMsg}` }],
                     isError: true,
                 };
             }
         };
 
-        // Generate description (could be enhanced using __argTypes)
-        const description = `Dynamically registered tool for ${funcName}. Args: ${argTypeDefs.map(a => a.name + ':' + a.type).join(', ') || 'none'}`;
+        // Use description from Zod definition
+        const description = zodDef.description || `Dynamically registered tool for ${funcName}`;
 
-        // Register the tool using the dynamic schema and handler
-        server.tool(funcName, description, inputSchema.shape, mcpHandler);
+        // Register the tool using the derived schema and handler
+        server.tool(funcName, description, inputShape, mcpHandler);
         registeredToolNames.push(funcName); // Add name to our list
-        console.error(`  - Registered tool: ${funcName}`);
+        console.error(`  - Registered tool: ${funcName} (${description})`);
       }
     }
   }

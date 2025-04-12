@@ -11,10 +11,17 @@ interface DefineFunctionOptions<TArgs extends ZodTuple<any, any>, TReturn extend
 }
 
 // Type that represents the implemented function with the Zod definition attached
-type DefinedFunction<TArgs extends ZodTuple<any, any>, TReturn extends ZodTypeAny> =
+export type DefinedFunction<TArgs extends ZodTuple<any, any>, TReturn extends ZodTypeAny> =
     ((...args: z.infer<TArgs>) => z.infer<TReturn>) & { // Use the function signature directly
          _def: ZodFunction<TArgs, TReturn>['_def'];
     };
+
+// Type alias for a module containing functions defined by DefineFunction
+// Exporting this type as well
+export type DefinedFunctionModule = Record<
+  string,
+  DefinedFunction<ZodTuple<any, any>, ZodTypeAny>
+>;
 
 // Implementation of DefineFunction
 export function DefineFunction<TArgs extends ZodTuple<any, any>, TReturn extends ZodTypeAny>(

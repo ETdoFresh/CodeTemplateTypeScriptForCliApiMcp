@@ -1,5 +1,6 @@
 // src/cli-lib/shared.ts
 import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodError } from 'zod';
+import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js'; // Import new types
 
 // --- Shared Types ---
 
@@ -92,7 +93,7 @@ export function processArgs(rawArgs: string[]): Command[] {
 // --- Exported Command Executor (Reverted to Duck Typing Check) ---
 export function executeParsedCommands(
     commands: Command[],
-    libraries: Record<string, ZodFunction<any, any>>[]
+    libraries: DefinedFunctionModule[] // Update library type
 ): ExecutionResult[] {
     const results: ExecutionResult[] = [];
 
@@ -108,16 +109,22 @@ export function executeParsedCommands(
 
                 commandFound = true; // Assume found if property exists
 
-                // --- Zod Function Handling (Assumed) ---
+                // --- Defined Function Handling ---
                 try {
-                    const zodFunc = func as ZodFunction<any, any>; // Assert type
+                    // Check if it's a DefinedFunction
+                    if (!(typeof func === 'function' && func._def)) {
+                        throw new Error(`Command '${commandName}' found but is not a DefinedFunction.`);
+                    }
+                    const definedFunc = func; // Type is now DefinedFunction
+                    const zodDef = definedFunc._def; // Access the Zod definition
 
-                    // Revert to accessing args via _def, but keep check
-                    const argTupleSchema = zodFunc._def.args as ZodTuple<any, any>;
+                    // Access args via zodDef
+                    const argTupleSchema = zodDef.args as ZodTuple<any, any>;
 
                     // Check if argTupleSchema is valid before proceeding
                     if (!argTupleSchema || !argTupleSchema._def) {
-                        throw new Error(`Could not retrieve argument schema from zodFunc._def for command '${commandName}'. _def content: ${JSON.stringify(zodFunc?._def)}`);
+                        // Use description from zodDef if available
+                        throw new Error(`Could not retrieve argument schema from ._def for command '${zodDef.description || commandName}'. _def content: ${JSON.stringify(zodDef)}`);
                     }
 
                     const fixedArgsSchemas = argTupleSchema._def.items || [];
@@ -136,10 +143,12 @@ export function executeParsedCommands(
                                  finalCallArgs.push(undefined);
                                  continue;
                              } else {
-                                 throw new Error(`Expected at least ${fixedArgsSchemas.length} arguments, but got ${commandArgs.length}.`);
+                                 // Use description from zodDef if available
+                                 throw new Error(`Command '${zodDef.description || commandName}' expected at least ${fixedArgsSchemas.length} arguments, but got ${commandArgs.length}.`);
                              }
                          }
-                         const coercedValue = coerceCliArg(commandArgs[cliArgIndex], argSchema, argName, commandName);
+                         // Use description from zodDef if available in error message
+                         const coercedValue = coerceCliArg(commandArgs[cliArgIndex], argSchema, argName, zodDef.description || commandName);
                          finalCallArgs.push(coercedValue);
                          cliArgIndex++;
                     }
@@ -149,20 +158,23 @@ export function executeParsedCommands(
                         const restArgsStrings = commandArgs.slice(cliArgIndex);
                         const restArgName = restArgSchema.description || 'restArgs';
                         const coercedRestValues = restArgsStrings.map(argStr =>
-                            coerceCliArg(argStr, restArgSchema, restArgName, commandName)
+                            // Use description from zodDef if available in error message
+                            coerceCliArg(argStr, restArgSchema, restArgName, zodDef.description || commandName)
                         );
                         finalCallArgs.push(...coercedRestValues);
                     } else if (cliArgIndex < commandArgs.length) {
-                        throw new Error(`Received too many arguments. Expected ${fixedArgsSchemas.length}, got ${commandArgs.length}.`);
+                        // Use description from zodDef if available
+                        throw new Error(`Command '${zodDef.description || commandName}' received too many arguments. Expected ${fixedArgsSchemas.length}, got ${commandArgs.length}.`);
                     }
 
-                    // 3. Execute the Zod function
-                    const returnsPromise = zodFunc._def.returns instanceof z.ZodPromise;
+                    // 3. Execute the defined function
+                    // Use description from zodDef if available
+                    const returnsPromise = zodDef.returns instanceof z.ZodPromise;
                     if (returnsPromise) {
-                        console.warn(`[${commandName}] Warning: Command is async, but CLI execution is currently synchronous. Result might be a Promise object.`);
+                        console.warn(`[${zodDef.description || commandName}] Warning: Command is async, but CLI execution is currently synchronous. Result might be a Promise object.`);
                     }
-                     // Use type assertion to bypass potential linter issues
-                    executionResult = (zodFunc as any)(...finalCallArgs);
+                     // Call the function directly, no cast needed
+                    executionResult = definedFunc(...finalCallArgs);
 
                 } catch (error: any) {
                     if (error instanceof ZodError) {

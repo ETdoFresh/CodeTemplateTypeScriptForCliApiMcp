@@ -1,12 +1,13 @@
 import readline from 'readline';
 import { ZodFunction } from 'zod';
+import { DefinedFunctionModule } from '../../utils/zod-function-utils.js'; // Import new type
 
 import {
     processArgs,
     executeParsedCommands,
 } from '../cli-lib/shared.js'; // Adjust path and add .js extension
 
-export const runRepl = (libraries: Record<string, ZodFunction<any, any>>[]) => {
+export const runRepl = (libraries: DefinedFunctionModule[]) => {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,

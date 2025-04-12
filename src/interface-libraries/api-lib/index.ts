@@ -3,6 +3,8 @@ import url from 'url';
 import type { IncomingMessage, ServerResponse } from 'http';
 // Import Zod and necessary types
 import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodObject, ZodError } from 'zod';
+// Update import path to point to zod-function-utils
+import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js';
 
 // Helper to check if a property exists on an object (local copy)
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
@@ -11,12 +13,14 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
 }
 
 // Helper to create the Zod object schema for API input (handles coercion for query params)
-function buildApiInputSchema(zodFunc: ZodFunction<any, any>, coerceQueryStrings: boolean): {
-    schema: ZodObject<any, any, any, any, any>; // Use broader types for ZodObject generics
+function buildApiInputSchema(definedFunc: DefinedFunction<any, any>, coerceQueryStrings: boolean): {
+    schema: ZodObject<any, any, any, any, any>;
     argNames: string[];
     restArgName?: string;
 } {
-    const argTupleSchema = zodFunc._def.args as ZodTuple<any, any>;
+    // Access the definition attached by DefineFunction
+    const zodDef = definedFunc._def;
+    const argTupleSchema = zodDef.args as ZodTuple<any, any>;
     let shape: Record<string, ZodTypeAny> = {};
     let argNames: string[] = [];
     let restArgName: string | undefined;
@@ -39,7 +43,7 @@ function buildApiInputSchema(zodFunc: ZodFunction<any, any>, coerceQueryStrings:
     argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
         const name = itemSchema.description || `arg${index}`;
         if (shape[name]) {
-            console.warn(`[API:${zodFunc.description || 'unknown'}] Duplicate argument name/description '${name}'.`);
+            console.warn(`[API:${zodDef.description || 'unknown'}] Duplicate argument name/description '${name}'.`);
             return;
         }
         shape[name] = coerceIfNeeded(itemSchema);
@@ -51,7 +55,7 @@ function buildApiInputSchema(zodFunc: ZodFunction<any, any>, coerceQueryStrings:
         const restSchema = argTupleSchema._def.rest as ZodTypeAny;
         restArgName = restSchema.description || 'restArgs';
         if (shape[restArgName]) {
-             console.warn(`[API:${zodFunc.description || 'unknown'}] Duplicate name/description '${restArgName}' for rest parameter.`);
+             console.warn(`[API:${zodDef.description || 'unknown'}] Duplicate name/description '${restArgName}' for rest parameter.`);
         } else {
              // API expects rest args as an optional array in the input object
              // Coercion for the *elements* needs to be handled during pre-processing for query params
@@ -71,8 +75,8 @@ function buildApiInputSchema(zodFunc: ZodFunction<any, any>, coerceQueryStrings:
 async function handleRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    // Allow ZodFunction type in the library list
-    libraries: Record<string, ZodFunction<any, any>>[]
+    // Update type to use DefinedFunctionModule
+    libraries: DefinedFunctionModule[]
 ) {
     const parsedUrl = url.parse(req.url || '', true);
     const pathname = parsedUrl.pathname || '';
@@ -100,29 +104,30 @@ async function handleRequest(
 
     let argsSource: Record<string, any> = {};
     let isJsonBody = false;
-    let potentialZodFunc: ZodFunction<any, any> | null = null;
+    let potentialDefinedFunc: DefinedFunction<any, any> | null = null; // Use DefinedFunction type
 
     // Find the potential Zod function first
     for (const library of libraries) {
         if (hasOwnProperty(library, commandName)) {
             const func = library[commandName];
-            // Remove the isZodFunction check, assume it is Zod if found
-            // if (isZodFunction(func)) { ... }
-            potentialZodFunc = func as ZodFunction<any, any>; // Assert type
-            break;
+            // Check if it has the _def property expected from DefinedFunction
+            if (typeof func === 'function' && func._def) {
+                 potentialDefinedFunc = func; // Assign directly, type matches
+                 break;
+            }
             // Optional: Handle non-Zod functions if necessary, otherwise they are ignored
         }
     }
 
     // If no function found by name, return 404
-    if (!potentialZodFunc) {
+    if (!potentialDefinedFunc) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         // Update error message
         res.end(JSON.stringify({ error: `Command '${commandName}' not found.` }));
         return;
     }
 
-    // Proceed with processing the found ZodFunction
+    // Proceed with processing the found DefinedFunction
     try {
         // Determine input source (JSON body or query params)
         if (req.method === 'POST' && req.headers['content-type']?.includes('application/json') && body) {
@@ -142,7 +147,7 @@ async function handleRequest(
         }
 
         // Build the Zod schema for API input validation (with coercion for query strings)
-        const { schema: apiInputSchema, argNames, restArgName } = buildApiInputSchema(potentialZodFunc, !isJsonBody);
+        const { schema: apiInputSchema, argNames, restArgName } = buildApiInputSchema(potentialDefinedFunc, !isJsonBody);
 
         // --- Pre-process query string arrays before Zod parsing ---
         if (!isJsonBody) {
@@ -183,10 +188,10 @@ async function handleRequest(
             finalCallArgs.push(...(validatedInput[restArgName] as any[]));
         }
 
-        // Execute the Zod function - Use type assertion to bypass linter issue
-        const result = (potentialZodFunc as any)(...finalCallArgs);
+        // Execute the defined function - it's just a function now, no cast needed
+        const result = potentialDefinedFunc(...finalCallArgs);
 
-        // Handle potential promise result if the Zod function was async
+        // Handle potential promise result if the function was async
         const finalResult = (result instanceof Promise) ? await result : result;
 
         // Send success response
@@ -218,8 +223,8 @@ async function handleRequest(
 // --- API Server Entry Point ---
 
 export function runApi(
-    // Update type to reflect that libraries can contain ZodFunctions
-    libraries: Record<string, ZodFunction<any,any>>[],
+    // Update type to use DefinedFunctionModule
+    libraries: DefinedFunctionModule[],
     port: number = 3000
 ) {
     // Pass the async handler function to createServer
@@ -233,13 +238,11 @@ export function runApi(
         libraries.forEach(library => {
             Object.keys(library).forEach(commandName => {
                 const func = library[commandName];
-                // Remove the isZodFunction check, assume all functions are Zod for docs
-                // if (isZodFunction(func)) { ... }
-
-                // Add a basic check to ensure func is at least an object before accessing _def
-                if (typeof func === 'object' && func !== null && func._def) {
-                    const zodFunc = func as ZodFunction<any, any>; // Assert type
-                    const argTupleSchema = zodFunc._def.args as ZodTuple<any, any>;
+                // Check if it's a DefinedFunction by looking for _def
+                if (typeof func === 'function' && func._def) {
+                    const definedFunc = func; // No cast needed
+                    const zodDef = definedFunc._def; // Access the Zod definition
+                    const argTupleSchema = zodDef.args as ZodTuple<any, any>;
                     let queryStringExample = '';
                     const paramDetails: string[] = [];
 
@@ -278,8 +281,8 @@ export function runApi(
                         if (paramDetails.length > 0) {
                             console.log(`    Parameters: ${paramDetails.join(', ')}`);
                         }
-                        if (zodFunc.description) {
-                            console.log(`    Description: ${zodFunc.description}`);
+                        if (zodDef.description) { // Use description from zodDef
+                            console.log(`    Description: ${zodDef.description}`);
                         } else {
                              console.log(`    Description: (No description provided)`);
                         }
@@ -287,8 +290,8 @@ export function runApi(
                          console.log(`  /${commandName} - Error generating documentation: ${docError.message}`);
                     }
                 } else {
-                    // Log functions that don't seem to be ZodFunctions
-                    console.log(`  /${commandName} - (Skipping documentation: Not recognized as Zod function)`);
+                    // Log functions that don't seem to be DefinedFunctions
+                    console.log(`  /${commandName} - (Skipping documentation: Not recognized as DefinedFunction)`);
                 }
                 // Remove the old non-Zod fallback
                 // else if (typeof func === 'function') {
