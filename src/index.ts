@@ -36,6 +36,9 @@ if (args.includes('--mcp')) {
 } else if (args.includes('--api')) {
     console.log("Starting API server...");
     runApi(libraries);
+} else if (args.includes('--repl')) {
+    console.log("Starting REPL...");
+    runRepl(libraries);
 } else if (args.length === 0) {
     console.log("No arguments provided, starting REPL...");
     runRepl(libraries);

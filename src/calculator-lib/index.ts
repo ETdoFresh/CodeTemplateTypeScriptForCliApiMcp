@@ -4,7 +4,7 @@ export function add(...args: number[]): number {
   }
   return args.reduce((sum, current) => sum + current, 0);
 }
-(add as any).__argTypes = [{ name: "args", type: "number[]" }];
+(add as any).__argTypes = [{ name: "args", type: "...number[]" }];
 
 
 export function subtract(...args: number[]): number {
@@ -16,7 +16,7 @@ export function subtract(...args: number[]): number {
   }
   return args.slice(1).reduce((result, current) => result - current, args[0]);
 }
-(subtract as any).__argTypes = [{ name: "args", type: "number[]" }];
+(subtract as any).__argTypes = [{ name: "args", type: "...number[]" }];
 
 
 export function multiply(...args: number[]): number {
@@ -25,7 +25,7 @@ export function multiply(...args: number[]): number {
   }
   return args.reduce((product, current) => product * current, 1);
 }
-(multiply as any).__argTypes = [{ name: "args", type: "number[]" }];
+(multiply as any).__argTypes = [{ name: "args", type: "...number[]" }];
 
 
 export function divide(...args: number[]): number {
@@ -43,4 +43,4 @@ export function divide(...args: number[]): number {
     return result / current;
   }, initialValue);
 }
-(divide as any).__argTypes = [{ name: "args", type: "number[]" }];
+(divide as any).__argTypes = [{ name: "args", type: "...number[]" }];

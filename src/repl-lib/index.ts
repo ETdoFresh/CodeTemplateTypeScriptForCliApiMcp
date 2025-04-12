@@ -4,8 +4,17 @@ import readline from 'readline';
 import {
     LibraryFunction,
     processArgs,
-    executeParsedCommands
+    executeParsedCommands,
+    Command, // Import Command if needed for ExecutionResult typing below (optional)
+    ExecutionResult // Import ExecutionResult if needed for typing below (optional)
 } from '../cli-lib/shared.js'; // Adjust path and add .js extension
+
+// Keep type guard if needed
+function hasOwnProperty<X extends {}, Y extends PropertyKey>
+  (obj: X, prop: Y): obj is X & Record<Y, unknown> {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
 
 export const runRepl = (libraries: Record<string, LibraryFunction>[]) => {
   const rl = readline.createInterface({
@@ -35,26 +44,30 @@ export const runRepl = (libraries: Record<string, LibraryFunction>[]) => {
 
     try {
         // Use processArgs to parse the single line of input
-        // Pass it as a single element array to mimic argv structure expected by processArgs
         const commandsToExecute = processArgs([trimmedLine]);
 
-        if (commandsToExecute.length === 0) {
+        if (commandsToExecute.length === 0 && trimmedLine) {
              console.error("Error: Invalid command input format.");
-        } else {
+        } else if (commandsToExecute.length > 0) {
             // Execute the parsed commands
             const executionResults = executeParsedCommands(commandsToExecute, libraries);
 
             // Print results or errors for each command executed
             executionResults.forEach(res => {
+                // Remove debug logs
+                // console.error("DEBUG REPL: Result object:", JSON.stringify(res, null, 2)); 
+                // console.error("DEBUG REPL: res.result value:", res.result);
+                
                 if (res.error) {
                     console.error(`Error executing command '${res.command.commandName}':`, res.error.message);
                 } else {
-                    console.log(res.result);
+                    if (res.result !== undefined) {
+                        console.log(res.result);
+                    }
                 }
             });
         }
     } catch (error: any) {
-         // Catch potential errors from processArgs itself
          console.error("Error processing input:", error.message);
     }
 
@@ -64,4 +77,4 @@ export const runRepl = (libraries: Record<string, LibraryFunction>[]) => {
     console.log('Exiting REPL.');
     process.exit(0);
   });
-}; 
+};
