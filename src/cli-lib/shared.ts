@@ -4,12 +4,11 @@
 export interface ArgInfo {
     name: string;
     type: ArgType;
+    optional?: boolean;
+    description?: string;
 }
 export type LibraryFunction = ((...args: any[]) => any) & { __argTypes?: ArgInfo[] };
-export type ArgType =
-    | 'boolean' | 'boolean[]' | '...boolean[]'
-    | 'string' | 'string[]' | '...string[]'
-    | 'number' | 'number[]' | '...number[]';
+export type ArgType = string | number | boolean | string[] | number[] | boolean[] | '...string[]' | '...number[]' | '...boolean[]';
 export interface Command {
     commandName: string;
     commandArgs: string[];
@@ -117,10 +116,17 @@ export function executeParsedCommands(
                     let commandArgIndex = 0;
 
                     // Determine expected signature type
-                    // A single array param specifically means ONE argument definition ending in [] but NOT starting with '...'
-                    const isSingleArrayParam = argTypeDefs.length === 1 && argTypeDefs[0].type.endsWith('[]') && !argTypeDefs[0].type.startsWith('...');
-                    // A rest parameter means the LAST argument definition starts with '...'
-                    const hasRestParameter = argTypeDefs.length > 0 && argTypeDefs[argTypeDefs.length - 1].type.startsWith('...');
+                    // Check if the type is a string before calling string methods
+                    const isSingleArrayParam = argTypeDefs.length === 1 &&
+                        typeof argTypeDefs[0].type === 'string' && // Type guard
+                        argTypeDefs[0].type.endsWith('[]') &&
+                        !argTypeDefs[0].type.startsWith('...');
+
+                    // --- Calculate hasRestParameter safely ---
+                    const lastArgDefType = argTypeDefs.length > 0 ? argTypeDefs[argTypeDefs.length - 1].type : undefined;
+                    const lastArgTypeString = typeof lastArgDefType === 'string' ? lastArgDefType : undefined;
+                    const hasRestParameter = !!lastArgTypeString?.startsWith('...'); // Use temporary var and ensure boolean
+                    // --- End safe calculation ---
 
                     // Adjust expected counts based on the refined definitions
                     const expectedMinArgCount = argTypeDefs.length - (hasRestParameter ? 1 : 0);
@@ -144,9 +150,15 @@ export function executeParsedCommands(
                     for (let i = 0; i < argTypeDefs.length; i++) {
                         const argDef = argTypeDefs[i];
                         const isLastArgDef = i === argTypeDefs.length - 1;
+
                         // Use the refined definitions for parsing
-                        const isRestForParsing = isLastArgDef && hasRestParameter;
-                        const isSingleArrayForParsing = isLastArgDef && isSingleArrayParam;
+                        const argTypeString = typeof argDef.type === 'string' ? argDef.type : undefined;
+
+                        const isRestForParsing = isLastArgDef && argTypeString?.startsWith('...');
+
+                        const isSingleArrayForParsing = isLastArgDef &&
+                            argTypeString?.endsWith('[]') &&
+                            !argTypeString?.startsWith('...');
 
                         if (isRestForParsing || isSingleArrayForParsing) {
                             const remainingArgs = commandArgs.slice(commandArgIndex);
@@ -214,36 +226,59 @@ export function executeParsedCommands(
 // Exported helper for detailed type validation (moved from cli-json-lib)
 export function validateType(value: any, expectedType: ArgType, argName: string, commandName: string): void {
     const type = typeof value;
+
+    // Restructure switch for better type narrowing
     switch (expectedType) {
         case 'string':
         case 'number':
         case 'boolean':
+            // Primitive type validation
             if (type !== expectedType) {
                 throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected ${expectedType}, got ${type}.`);
             }
             break;
+
+        // String array/rest
         case 'string[]':
-        case 'number[]':
-        case 'boolean[]':
         case '...string[]':
-        case '...number[]':
-        case '...boolean[]':
             if (!Array.isArray(value)) {
-                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected array (${expectedType}), got ${type}.`);
+                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected string array, got ${type}.`);
             }
-            // Optional: Add checks for element types within the array if needed
-            const expectedElementType = expectedType.replace('[]', '').replace('...','');
-            for(const element of value) {
-                 if (typeof element !== expectedElementType) {
-                     // Allow null/undefined elements in arrays?
-                     if (element !== null && element !== undefined) {
-                         throw new Error(`Type mismatch for element in array '${argName}' of command '${commandName}'. Expected ${expectedElementType}, got ${typeof element}.`);
-                     }
-                 }
+            for (const element of value) {
+                if (typeof element !== 'string' && element !== null && element !== undefined) {
+                    throw new Error(`Type mismatch for element in string array '${argName}' of command '${commandName}'. Expected string, got ${typeof element}.`);
+                }
             }
             break;
+
+        // Number array/rest
+        case 'number[]':
+        case '...number[]':
+            if (!Array.isArray(value)) {
+                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected number array, got ${type}.`);
+            }
+            for (const element of value) {
+                if (typeof element !== 'number' && element !== null && element !== undefined) {
+                    throw new Error(`Type mismatch for element in number array '${argName}' of command '${commandName}'. Expected number, got ${typeof element}.`);
+                }
+            }
+            break;
+
+        // Boolean array/rest
+        case 'boolean[]':
+        case '...boolean[]':
+            if (!Array.isArray(value)) {
+                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected boolean array, got ${type}.`);
+            }
+            for (const element of value) {
+                if (typeof element !== 'boolean' && element !== null && element !== undefined) {
+                    throw new Error(`Type mismatch for element in boolean array '${argName}' of command '${commandName}'. Expected boolean, got ${typeof element}.`);
+                }
+            }
+            break;
+
         default:
-            // This should be unreachable if ArgType is correct
+            // This should now be correctly unreachable
             const exhaustiveCheck: never = expectedType;
             throw new Error(`Internal error: Unsupported argument type '${exhaustiveCheck}' for validation.`);
     }

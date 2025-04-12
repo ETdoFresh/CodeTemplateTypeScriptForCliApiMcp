@@ -61,9 +61,14 @@ function buildZodSchema(argTypeDefs: ArgInfo[], commandName: string): z.ZodObjec
             shape[argDef.name] = z.array((zodType as z.ZodArray<any>)._def.type).optional().describe(`Rest arguments for ${argDef.name}`);
             hasRestParam = true;
         } else {
-            // Non-rest parameters are required by default in Zod
-            // TODO: Add concept of optional non-rest params if needed?
-            shape[argDef.name] = zodType.describe(`Argument ${argDef.name}`);
+            // Non-rest parameters
+            // Check if the argument is marked as optional in __argTypes
+            if (argDef.optional) {
+                shape[argDef.name] = zodType.optional().describe(`Argument ${argDef.name}`);
+            } else {
+                // Otherwise, it remains required (Zod default)
+                shape[argDef.name] = zodType.describe(`Argument ${argDef.name}`);
+            }
         }
     }
     return z.object(shape);

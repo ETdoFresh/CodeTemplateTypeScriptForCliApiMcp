@@ -8,7 +8,8 @@ import { runCli } from './cli-lib';
 import { runApi } from './api-lib';
 import { runMcp } from './mcp-lib';
 import { runRepl } from './repl-lib';
-import { runCliJson } from './cli-json-lib'; // Linter error still present
+import { runCliJson } from './cli-json-lib';
+import * as repopackLib from './repopack-lib';
 import { LibraryFunction } from './cli-lib/shared';
 import process from 'process';
 import fs from 'fs';
@@ -32,7 +33,7 @@ interface Config {
 
 const defaultConfig: Config = {
     // Update default libraries back to names
-    libraries: ['calculator', 'echo', 'hello'],
+    libraries: ['calculator', 'echo', 'hello', 'repopack'], // Add repopack to defaults
     options: {
         mcp: true,
         api: true,
@@ -48,6 +49,7 @@ const allLibraries: Record<string, Record<string, LibraryFunction>> = {
     calculator: calculator,
     echo: echoLib,
     hello: helloLib,
+    repopack: repopackLib, // Add repopack to the map
 };
 
 // Wrap execution in an async function (still useful if any run* function becomes async)
