@@ -7,7 +7,18 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-type LibraryFunction = (...args: string[]) => any;
+// Helper function to parse string arguments to numbers
+function parseStringsToNumbers(args: string[]): number[] {
+  return args.map(arg => {
+    const num = parseFloat(arg);
+    if (isNaN(num)) {
+      throw new Error(`Invalid number argument: ${arg}`);
+    }
+    return num;
+  });
+}
+
+type LibraryFunction = (...args: any[]) => any; // Use any[] to allow both string and number arrays
 
 export function runApi(libraries: Record<string, LibraryFunction>[], port: number = 3000) {
   const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -25,12 +36,16 @@ export function runApi(libraries: Record<string, LibraryFunction>[], port: numbe
         }
     }
 
+    // Identify calculator commands
+    const calculatorCommands = ['add', 'subtract', 'multiply', 'divide'];
     let func: LibraryFunction | null = null;
+    let isCalculatorCommand = false;
 
     // Find the function in the libraries
     for (const library of libraries) {
       if (hasOwnProperty(library, commandName) && typeof library[commandName] === 'function') {
         func = library[commandName];
+        isCalculatorCommand = calculatorCommands.includes(commandName);
         break;
       }
     }
@@ -45,7 +60,15 @@ export function runApi(libraries: Record<string, LibraryFunction>[], port: numbe
       });
 
       try {
-        const result = func(...commandArgs);
+        let result: any;
+        if (isCalculatorCommand) {
+            const numericArgs = parseStringsToNumbers(commandArgs);
+            // Call calculator func with number[] args, casting via unknown
+            result = (func as unknown as (...args: number[]) => any)(...numericArgs);
+        } else {
+            // Call other func with string[] args
+            result = (func as (...args: string[]) => any)(...commandArgs);
+        }
         // Send the result as an SSE data event
         res.write(`data: ${JSON.stringify(result)}\n\n`);
       } catch (error: any) {

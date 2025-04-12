@@ -1,12 +1,11 @@
 import readline from 'readline';
 
-// Type guard to check if a key exists on an object
-function hasOwnProperty<X extends {}, Y extends PropertyKey>
-  (obj: X, prop: Y): obj is X & Record<Y, unknown> {
-  return Object.prototype.hasOwnProperty.call(obj, prop);
-}
-
-type LibraryFunction = (...args: string[]) => any;
+// Import shared components from cli-lib
+import {
+    LibraryFunction,
+    processArgs,
+    executeParsedCommands
+} from '../cli-lib/shared.js'; // Adjust path and add .js extension
 
 export const runRepl = (libraries: Record<string, LibraryFunction>[]) => {
   const rl = readline.createInterface({
@@ -15,17 +14,8 @@ export const runRepl = (libraries: Record<string, LibraryFunction>[]) => {
     prompt: '> '
   });
 
-  // Combine all available commands for help message and lookup
-  const allCommands: Record<string, LibraryFunction> = {};
-    const availableCommandNames: string[] = [];
-    libraries.forEach(lib => {
-        for (const commandName in lib) {
-            if (hasOwnProperty(lib, commandName)) {
-                allCommands[commandName] = lib[commandName];
-                availableCommandNames.push(commandName);
-            }
-        }
-    });
+  // Combine all available commands just for the help message
+  const availableCommandNames = libraries.flatMap(lib => Object.keys(lib));
 
   console.log('Interactive CLI. Type "exit" or "quit" to leave.');
   console.log('Available commands:', availableCommandNames.join(', '));
@@ -43,30 +33,35 @@ export const runRepl = (libraries: Record<string, LibraryFunction>[]) => {
         return;
     }
 
-    const parts = trimmedLine.split(/\s+/); // Split by whitespace
-    const commandName = parts[0];
-    const commandArgs = parts.slice(1);
+    try {
+        // Use processArgs to parse the single line of input
+        // Pass it as a single element array to mimic argv structure expected by processArgs
+        const commandsToExecute = processArgs([trimmedLine]);
 
-    if (hasOwnProperty(allCommands, commandName)) {
-      try {
-        const func = allCommands[commandName];
-        const result = func(...commandArgs);
-        console.log(result);
-      } catch (error) {
-        if (error instanceof Error) {
-          console.error(`Error executing command '${commandName}':`, error.message);
+        if (commandsToExecute.length === 0) {
+             console.error("Error: Invalid command input format.");
         } else {
-          console.error(`An unknown error occurred executing command '${commandName}'.`);
+            // Execute the parsed commands
+            const executionResults = executeParsedCommands(commandsToExecute, libraries);
+
+            // Print results or errors for each command executed
+            executionResults.forEach(res => {
+                if (res.error) {
+                    console.error(`Error executing command '${res.command.commandName}':`, res.error.message);
+                } else {
+                    console.log(res.result);
+                }
+            });
         }
-      }
-    } else {
-      console.error(`Error: Command '${commandName}' not found.`);
-      console.error('Available commands:', availableCommandNames.join(', '));
+    } catch (error: any) {
+         // Catch potential errors from processArgs itself
+         console.error("Error processing input:", error.message);
     }
 
     rl.prompt();
+
   }).on('close', () => {
-    console.log('Exiting CLI.');
+    console.log('Exiting REPL.');
     process.exit(0);
   });
 }; 

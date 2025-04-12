@@ -10,7 +10,18 @@ const GenericStringVarArgsSchema = z.object({
 });
 const genericShape = GenericStringVarArgsSchema.shape;
 
-type LibraryFunction = (...args: string[]) => any;
+// Helper function to parse string arguments to numbers
+function parseStringsToNumbers(args: string[]): number[] {
+  return args.map(arg => {
+    const num = parseFloat(arg);
+    if (isNaN(num)) {
+      throw new Error(`Invalid number argument: ${arg}`);
+    }
+    return num;
+  });
+}
+
+type LibraryFunction = (...args: any[]) => any; // Use any[] for flexibility
 
 // --- Server Setup and Dynamic Registration --- 
 
@@ -24,6 +35,8 @@ export async function runMcp(libraries: Record<string, LibraryFunction>[]) {
 
   console.error("Registering tools dynamically...");
   const registeredToolNames: string[] = []; // Array to track registered tools
+  // Identify calculator commands
+  const calculatorCommands = ['add', 'subtract', 'multiply', 'divide'];
 
   // Iterate through each library object provided
   for (const library of libraries) {
@@ -32,14 +45,26 @@ export async function runMcp(libraries: Record<string, LibraryFunction>[]) {
       // Check if the property is a function and owned by the object (not inherited)
       if (Object.prototype.hasOwnProperty.call(library, funcName) && typeof library[funcName] === 'function') {
         const originalFunction = library[funcName] as LibraryFunction;
+        const isCalculatorCommand = calculatorCommands.includes(funcName);
 
         // Create a generic handler for this function
         const genericHandler = async (inputArgs: unknown): Promise<CallToolResult> => {
           try {
             // Validate input against the generic schema
-            const parsedArgs = GenericStringVarArgsSchema.parse(inputArgs);
-            // Call the original library function
-            const result = originalFunction(...parsedArgs.args);
+            const parsedInput = GenericStringVarArgsSchema.parse(inputArgs);
+            const stringArgs = parsedInput.args;
+            let result: any;
+
+            // Parse args if it's a calculator command
+            if (isCalculatorCommand) {
+                const numericArgs = parseStringsToNumbers(stringArgs);
+                // Call calculator func with number[] args, casting via unknown
+                result = (originalFunction as unknown as (...args: number[]) => any)(...numericArgs);
+            } else {
+                // Call other func with string[] args
+                result = (originalFunction as (...args: string[]) => any)(...stringArgs);
+            }
+
             // Format the result
             const resultString = typeof result === 'string' ? result : JSON.stringify(result);
             return {
@@ -58,6 +83,8 @@ export async function runMcp(libraries: Record<string, LibraryFunction>[]) {
         const description = `Dynamically registered tool for the ${funcName} function.`;
 
         // Register the tool using the generic schema and handler
+        // For calculator commands, we might ideally want a different schema (z.number()),
+        // but for simplicity, we keep the string schema and parse inside the handler.
         server.tool(funcName, description, genericShape, genericHandler);
         registeredToolNames.push(funcName); // Add name to our list
         console.error(`  - Registered tool: ${funcName}`);
