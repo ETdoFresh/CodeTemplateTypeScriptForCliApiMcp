@@ -195,8 +195,7 @@ export function executeParsedCommands(
                 }
                  // Now push the result object *inside* the library loop, immediately after try/catch
                  // This ensures we capture the correct executionResult/executionError for *this* specific function attempt
-                
-                 console.error(`DEBUG SHARED: Pushing result:`, { result: executionResult, error: executionError });
+                 // console.error(`DEBUG SHARED: Pushing result:`, { result: executionResult, error: executionError });
                  results.push({ command, result: executionResult, error: executionError });
                  break; // Command found and result recorded
             }
@@ -205,7 +204,7 @@ export function executeParsedCommands(
         if (!commandFound) {
             executionError = new Error(`Command '${commandName}' not found.`);
              // Push the error result if command wasn't found in any library
-             console.error(`DEBUG SHARED: Pushing command not found error:`, { error: executionError });
+             // console.error(`DEBUG SHARED: Pushing command not found error:`, { error: executionError });
              results.push({ command, result: undefined, error: executionError });
         }
     }
