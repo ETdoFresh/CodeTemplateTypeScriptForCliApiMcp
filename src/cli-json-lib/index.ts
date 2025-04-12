@@ -16,10 +16,16 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
 // Renamed function to runCliJson and adjusted signature
 export function runCliJson(
     libraries: Record<string, LibraryFunction>[],
+    args?: string[] // Add optional args parameter
 ): void { // Return void as it will handle printing/exiting
-    // Filter out the --json flag before processing args
-    const args = process.argv.slice(2).filter(arg => arg !== '--json');
-    const commands = processArgs(args); // Use processArgs from cli-lib
+    // Use provided args if available, otherwise default to process.argv.slice(2)
+    // index.ts is responsible for filtering --config and --json
+    const rawArgs = args ?? process.argv.slice(2);
+
+    // Filter out the --json flag before processing args - THIS MIGHT BE REDUNDANT if index.ts already does
+    // const filteredArgs = rawArgs.filter(arg => arg !== '--json');
+    // Let's assume index.ts passes the correct args already
+    const commands = processArgs(rawArgs); // Use processArgs from cli-lib
 
     if (commands.length === 0) {
         console.error("No command provided.");
