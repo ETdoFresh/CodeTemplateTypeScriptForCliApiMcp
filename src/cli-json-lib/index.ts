@@ -1,4 +1,4 @@
-import { LibraryFunction, ArgInfo, ArgType, Command, ExecutionResult, processArgs } from '../cli-lib/shared';
+import { LibraryFunction, ArgInfo, ArgType, Command, ExecutionResult, processArgs, validateType } from '../cli-lib/shared';
 import process from 'process'; // Import process for argv
 
 // Helper to check if a property exists on an object
@@ -8,37 +8,9 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
 }
 
 // Helper for detailed type validation
-function validateType(value: any, expectedType: ArgType, argName: string, commandName: string): void {
-    const type = typeof value;
-    switch (expectedType) {
-        case 'string':
-        case 'number':
-        case 'boolean':
-            if (type !== expectedType) {
-                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected ${expectedType}, got ${type}.`);
-            }
-            break;
-        case 'string[]':
-        case 'number[]':
-        case 'boolean[]':
-        case '...string[]':
-        case '...number[]':
-        case '...boolean[]':
-            if (!Array.isArray(value)) {
-                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected array (${expectedType}), got ${type}.`);
-            }
-            // Optional: Add checks for element types within the array if needed
-            const expectedElementType = expectedType.replace('[]', '').replace('...','');
-            for(const element of value) {
-                 if (typeof element !== expectedElementType) {
-                     throw new Error(`Type mismatch for element in array '${argName}' of command '${commandName}'. Expected ${expectedElementType}, got ${typeof element}.`);
-                 }
-            }
-            break;
-        default:
-            throw new Error(`Internal error: Unsupported argument type '${expectedType}' for validation.`);
-    }
-}
+// function validateType(value: any, expectedType: ArgType, argName: string, commandName: string): void {
+//    // ... implementation removed ...
+// }
 
 
 // Renamed function to runCliJson and adjusted signature
