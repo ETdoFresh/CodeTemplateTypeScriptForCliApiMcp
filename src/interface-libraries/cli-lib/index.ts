@@ -7,10 +7,9 @@ import {
 } from './shared.js';
 
 // --- CLI Entry Point ---
-export const runCli = (libraries: Record<string, ZodFunction<any, any>>[], args?: string[]) => {
-  // Use provided args if available, otherwise default to process.argv.slice(2)
-  // index.ts is responsible for filtering --config
-  const rawArgs = args ?? process.argv.slice(2);
+export const runCli = (libraries: Record<string, ZodFunction<any, any>>[]) => {
+  // REVERT: Read process.argv directly
+  const rawArgs = process.argv.slice(2);
   let commands: Command[];
 
   try {

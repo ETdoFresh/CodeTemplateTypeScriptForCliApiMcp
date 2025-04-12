@@ -54,9 +54,9 @@ function buildJsonInputSchema(zodFunc: ZodFunction<any, any>): {
 // Renamed function to runCliJson and adjusted signature
 export function runCliJson(
     libraries: Record<string, ZodFunction<any, any>>[], // Use the correct type here
-    args?: string[] // Add optional args parameter
 ): void { // Return void as it will handle printing/exiting
-    const rawArgs = args ?? process.argv.slice(2);
+    // REVERT: Read process.argv directly and filter --json
+    const rawArgs = process.argv.slice(2).filter(arg => arg !== '--json');
     const commands = processArgs(rawArgs); // Use processArgs from cli-lib
 
     if (commands.length === 0) {
