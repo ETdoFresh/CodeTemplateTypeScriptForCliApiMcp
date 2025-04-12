@@ -1,68 +1,117 @@
-export function helloString(name: string): string {
-  return `Hello, ${name}!`;
-}
-(helloString as any).__argTypes = [{ name: "name", type: "string" }];
+import { z } from "zod";
+import { DefineFunction } from "../utils/zod-function-utils";
 
-export function helloNumber(num: number): string {
-  return `Hello, ${num}!`;
-}
-(helloNumber as any).__argTypes = [{ name: "num", type: "number" }];
+export const helloString = DefineFunction({
+  description: 'Greets with the provided string',
+  args: z.tuple([z.string().describe('The string to echo')]),
+  return: z.string().describe('The greeting with the string'),
+  function: (name: string) => {
+    return `Hello, ${name}!`;
+  }
+});
 
-export function helloBoolean(bool: boolean): string {
-  return bool ? "Hello, true!" : "Hello, false!";
-}
-(helloBoolean as any).__argTypes = [{ name: "bool", type: "boolean" }];
+export const helloNumber = DefineFunction({
+  description: 'Greets with the provided number',
+  args: z.tuple([z.number().describe('The number to echo')]),
+  return: z.string().describe('The greeting with the number'),
+  function: (num: number) => {
+    return `Hello, ${num}!`;
+  }
+});
 
-export function helloStringArray(arr: string[]): string {
-  return `Hello, ${arr.join(', ')}!`;
-}
-(helloStringArray as any).__argTypes = [{ name: "arr", type: "string[]" }];
+export const helloBoolean = DefineFunction({
+  description: 'Greets with the provided boolean',
+  args: z.tuple([z.boolean().describe('The boolean to echo')]),
+  return: z.string().describe('The greeting with the boolean'),
+  function: (bool: boolean) => {
+    return bool ? "Hello, true!" : "Hello, false!";
+  }
+});
 
-export function helloNumberArray(arr: number[]): string {
-  return `Hello, ${arr.join(', ')}!`;
-}
-(helloNumberArray as any).__argTypes = [{ name: "arr", type: "number[]" }];
 
-export function helloBooleanArray(arr: boolean[]): string {
-  return `Hello, ${arr.join(', ')}!`;
-}
-(helloBooleanArray as any).__argTypes = [{ name: "arr", type: "boolean[]" }];
+export const helloStringArray = DefineFunction({
+  description: 'Greets with the provided array of strings',
+  args: z.tuple([z.array(z.string()).describe('The array of strings to echo')]),
+  return: z.string().describe('The greeting with the array of strings'),
+  function: (arr: string[]) => {
+    return `Hello, ${arr.join(', ')}!`;
+  }
+});
 
-export function helloStringArgs(...args: string[]): string {
-  return `Hello, ${args.join(', ')}!`;
-}
-(helloStringArgs as any).__argTypes = [{ name: "args", type: "...string[]" }];
+export const helloNumberArray = DefineFunction({
+  description: 'Greets with the provided array of numbers',
+  args: z.tuple([z.array(z.number()).describe('The array of numbers to echo')]),
+  return: z.string().describe('The greeting with the array of numbers'),
+  function: (arr: number[]) => {
+    return `Hello, ${arr.join(', ')}!`;
+  }
+});
 
-export function helloNumberArgs(...args: number[]): string {
-  return `Hello, ${args.join(', ')}!`;
-}
-(helloNumberArgs as any).__argTypes = [{ name: "args", type: "...number[]" }];
 
-export function helloBooleanArgs(...args: boolean[]): string {
-  return `Hello, ${args.join(', ')}!`;
-}
-(helloBooleanArgs as any).__argTypes = [{ name: "args", type: "...boolean[]" }];
+export const helloBooleanArray = DefineFunction({
+  description: 'Greets with the provided array of booleans',
+  args: z.tuple([z.array(z.boolean()).describe('The array of booleans to echo')]),
+  return: z.string().describe('The greeting with the array of booleans'),
+  function: (arr: boolean[]) => {
+    return `Hello, ${arr.join(', ')}!`;
+  }
+});
 
-export function hello(...args: string[]): string {
-    return `Hello, ${args.join(' ') || 'world'}!`;
-}
-(hello as any).__argTypes = [{ name: "args", type: "...string[]" }];
+export const helloStringArgs = DefineFunction({
+  description: 'Greets with the provided strings',
+  args: z.tuple([]).rest(z.string()).describe('The strings to echo'),
+  return: z.string().describe('The greeting with the strings'),
+  function: (...args: string[]) => {
+    return `Hello, ${args.join(', ')}!`;
+  }
+});
 
-// --- NEW Mixed Type Functions ---
+export const helloNumberArgs = DefineFunction({
+  description: 'Greets with the provided numbers',
+  args: z.tuple([]).rest(z.number()).describe('The numbers to echo'),
+  return: z.string().describe('The greeting with the numbers'),
+  function: (...args: number[]) => {
+    return `Hello, ${args.join(', ')}!`;
+  }
+});
 
-export function helloStringNumber(msg: string, count: number): string {
+export const helloBooleanArgs = DefineFunction({
+  description: 'Greets with the provided booleans',
+  args: z.tuple([]).rest(z.boolean()).describe('The booleans to echo'),
+  return: z.string().describe('The greeting with the booleans'),
+  function: (...args: boolean[]) => {
+    return `Hello, ${args.join(', ')}!`;
+  }
+});
+
+
+export const helloStringNumber = DefineFunction({
+  description: 'Greets with the provided message and count',
+  args: z.tuple([z.string().describe('The message to echo'), z.number().describe('The count to echo')]),
+  return: z.string().describe('The greeting with the message and count'),
+  function: (msg: string, count: number) => {
     return `Message: ${msg}, Count: ${count}`;
-}
-(helloStringNumber as any).__argTypes = [
-    { name: "msg", type: "string" },
-    { name: "count", type: "number" }
-];
+  }
+});
 
-export function helloStringRestNumbers(prefix: string, ...nums: number[]): string {
+
+export const helloStringRestNumbers = DefineFunction({
+  description: 'Greets with the provided prefix and numbers',
+  args: z.tuple([z.string().describe('The prefix to echo'), z.array(z.number()).describe('The numbers to echo')]),
+  return: z.string().describe('The greeting with the prefix and numbers'),
+  function: (prefix: string, nums: number[]) => {
     const numString = nums.join(', ');
     return `Prefix: ${prefix}, Numbers: [${numString}]`;
-}
-(helloStringRestNumbers as any).__argTypes = [
-    { name: "prefix", type: "string" },
-    { name: "nums", type: "...number[]" } // Rest parameter
-];
+  }
+});
+
+
+export const helloStringRestNumbersArgs = DefineFunction({
+  description: 'Greets with the provided prefix and numbers',
+  args: z.tuple([]).rest(z.string()).describe('The prefix to echo'),
+  return: z.string().describe('The greeting with the prefix and numbers'),
+  function: (prefix: string, ...nums: number[]) => {
+    const numString = nums.join(', ');
+    return `Prefix: ${prefix}, Numbers: [${numString}]`;
+  }
+});

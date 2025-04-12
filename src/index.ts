@@ -10,13 +10,10 @@ import { runMcp } from './mcp-lib';
 import { runRepl } from './repl-lib';
 import { runCliJson } from './cli-json-lib';
 import * as repopackLib from './repopack-lib';
-import { LibraryFunction } from './cli-lib/shared';
 import process from 'process';
 import fs from 'fs';
 import path from 'path';
-// Remove url import - no longer needed
-// import url from 'url';
-// const { pathToFileURL } = url;
+import { ZodFunction } from 'zod';
 
 // --- Define Default Configuration ---
 interface Config {
@@ -45,18 +42,17 @@ const defaultConfig: Config = {
 };
 
 // Reintroduce allLibraries map for static modules
-const allLibraries: Record<string, Record<string, LibraryFunction>> = {
-    calculator: calculator,
-    echo: echoLib,
-    hello: helloLib,
-    repopack: repopackLib, // Add repopack to the map
+// Use explicit double casting (via unknown) to satisfy the index signature type
+const allLibraries: Record<string, Record<string, ZodFunction<any, any>>> = {
+    calculator: calculator as unknown as Record<string, ZodFunction<any, any>>,
+    echo: echoLib as unknown as Record<string, ZodFunction<any, any>>, // Cast echoLib as well
+    // hello: helloLib as unknown as Record<string, ZodFunction<any, any>>, // Add hello and repopack when ready
+    // repopack: repopackLib as unknown as Record<string, ZodFunction<any, any>>,
 };
 
 // Wrap execution in an async function (still useful if any run* function becomes async)
 async function main() {
-    // Remove ESM __dirname calculation - no longer needed
-    // const __filename = url.fileURLToPath(import.meta.url);
-    // const __dirname = path.dirname(__filename);
+    console.log("Starting Repopack CLI...");
 
     // --- Argument Parsing and Config Loading ---
     const args = process.argv.slice(2);
@@ -96,7 +92,7 @@ async function main() {
     }
 
     // --- Load Libraries Based on Config (using static map) ---
-    const loadedLibraries: Record<string, LibraryFunction>[] = [];
+    const loadedLibraries: Record<string, ZodFunction<any, any>>[] = [];
     console.log("Attempting to enable libraries based on config:", effectiveConfig.libraries);
 
     for (const libName of effectiveConfig.libraries) {
@@ -191,39 +187,12 @@ async function main() {
                 console.log("Usage: node index.js [--config <path>] [--mcp | --api | --json | --repl | <cli_args>]");
         }
     } else {
-        // Arguments provided, and they are not the explicit flags handled above
-        // This case now correctly means CLI args are present for the default CLI/JSON interface
         console.log("Arguments provided, attempting to use default CLI/JSON interface...");
-        switch (effectiveConfig.defaultInterface) {
-            case 'cli':
-                if (effectiveConfig.options.cli) {
-                    console.log("Running default CLI interface with provided arguments...");
-                    runCli(loadedLibraries, processedArgs); // Pass the actual remaining args
-                } else {
-                    console.log("Arguments provided for CLI, but CLI mode is disabled in configuration.");
-                }
-                break;
-            case 'json':
-                 if (effectiveConfig.options.json) {
-                    console.log("Running default JSON interface with provided arguments...");
-                    runCliJson(loadedLibraries, processedArgs); // Pass the actual remaining args
-                 } else {
-                    console.log("Arguments provided for JSON, but JSON mode is disabled in configuration.");
-                 }
-                 break;
-            // REPL, API, MCP typically don't handle arguments this way, show usage
-            case 'repl':
-            case 'api':
-            case 'mcp':
-                console.log(`Arguments provided, but the default interface ('${effectiveConfig.defaultInterface}') does not accept direct arguments.`);
-                console.log("Did you mean to use an explicit flag like --mcp, --api, --repl, or --json? Or provide arguments for the CLI?");
-                console.log("Usage: node index.js [--config <path>] [--mcp | --api | --json | --repl | <cli_args>]");
-                break;
-            default:
-                // Should not happen due to type safety
-                const exhaustiveCheck2: never = effectiveConfig.defaultInterface;
-                console.log(`Unknown or invalid default interface specified: ${exhaustiveCheck2}`);
-                console.log("Usage: node index.js [--config <path>] [--mcp | --api | --json | --repl | <cli_args>]");
+        if (effectiveConfig.options.cli) {
+            console.log("Running default CLI interface with provided arguments...");
+            runCli(loadedLibraries, processedArgs); // Pass the actual remaining args
+        } else {
+            console.log("Arguments provided for CLI, but CLI mode is disabled in configuration.");
         }
     }
 }

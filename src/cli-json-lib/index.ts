@@ -1,126 +1,153 @@
-import { LibraryFunction, ArgInfo, ArgType, Command, ExecutionResult, processArgs, validateType } from '../cli-lib/shared';
+import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodObject, ZodError } from 'zod';
+import { processArgs } from '../cli-lib/shared'; // Keep this import
 import process from 'process'; // Import process for argv
 
-// Helper to check if a property exists on an object
+// Helper to check if a property exists on an object (using the local definition)
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
   (obj: X, prop: Y): obj is X & Record<Y, unknown> {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-// Helper for detailed type validation
-// function validateType(value: any, expectedType: ArgType, argName: string, commandName: string): void {
-//    // ... implementation removed ...
+// Helper function to safely check if an object is a ZodFunction
+// function isZodFunction(func: any): func is ZodFunction<any, any> {
+//     return typeof func === 'object' && func !== null && 'inputSchema' in func && 'execute' in func;
 // }
+
+// Helper to build the ZodObject schema expected from the JSON input
+function buildJsonInputSchema(zodFunc: ZodFunction<any, any>): {
+    schema: ZodObject<any, any, any, any, any>;
+    argNames: string[];
+    restArgName?: string;
+} {
+    const argTupleSchema = zodFunc._def.args as ZodTuple<any, any>;
+    let shape: Record<string, ZodTypeAny> = {};
+    let argNames: string[] = [];
+    let restArgName: string | undefined;
+
+    // Process fixed tuple arguments
+    argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
+        const name = itemSchema.description || `arg${index}`;
+        if (shape[name]) {
+             console.warn(`[JSON:${zodFunc.description || 'unknown'}] Duplicate argument name/description '${name}'.`);
+             return;
+        }
+        shape[name] = itemSchema; // No coercion needed for JSON input
+        argNames.push(name);
+    });
+
+    // Process rest argument
+    if (argTupleSchema._def.rest) {
+        const restSchema = argTupleSchema._def.rest as ZodTypeAny;
+        restArgName = restSchema.description || 'restArgs';
+        if (shape[restArgName]) {
+            console.warn(`[JSON:${zodFunc.description || 'unknown'}] Duplicate name/description '${restArgName}' for rest parameter.`);
+        } else {
+            // JSON input expects rest args as an optional array
+            shape[restArgName] = z.array(restSchema).optional().describe(restSchema.description || `Variable number of ${restArgName}`);
+        }
+    }
+    // Use strict() to prevent extra properties in the JSON input
+    return { schema: z.object(shape).strict(), argNames, restArgName };
+}
 
 
 // Renamed function to runCliJson and adjusted signature
 export function runCliJson(
-    libraries: Record<string, LibraryFunction>[],
+    libraries: Record<string, ZodFunction<any, any>>[], // Use the correct type here
     args?: string[] // Add optional args parameter
 ): void { // Return void as it will handle printing/exiting
-    // Use provided args if available, otherwise default to process.argv.slice(2)
-    // index.ts is responsible for filtering --config and --json
     const rawArgs = args ?? process.argv.slice(2);
-
-    // Filter out the --json flag before processing args - THIS MIGHT BE REDUNDANT if index.ts already does
-    // const filteredArgs = rawArgs.filter(arg => arg !== '--json');
-    // Let's assume index.ts passes the correct args already
     const commands = processArgs(rawArgs); // Use processArgs from cli-lib
 
     if (commands.length === 0) {
         console.error("No command provided.");
         process.exit(1);
     }
-    // Assuming JSON mode handles only the first command with a JSON object
+    // JSON mode handles only the first command with a single JSON object arg
     const command = commands[0];
     const { commandName, commandArgs } = command;
 
-    // Check if the input looks like JSON (single argument starting with {)
-    const isJsonInput = commandArgs.length === 1 && commandArgs[0].trim().startsWith('{');
+    // Basic check if the input looks like a single JSON argument
+    const isPotentialJsonInput = commandArgs.length === 1 && commandArgs[0].trim().startsWith('{');
 
-    if (!isJsonInput) {
-         console.error(`Input for command '${commandName}' is not in the expected JSON format for runCliJson.`);
+    if (!isPotentialJsonInput) {
+         console.error(`Input for command '${commandName}' must be a single JSON object string (e.g., '{"arg1": "value1", "arg2": 123}').`);
          process.exit(1);
     }
 
     let executionResult: any;
     let executionError: Error | undefined;
+    let zodFunc: ZodFunction<any, any> | null = null;
 
     try {
-        const jsonArgsString = commandArgs[0];
-        const parsedJsonArgs = JSON.parse(jsonArgsString);
-
-        if (typeof parsedJsonArgs !== 'object' || parsedJsonArgs === null || Array.isArray(parsedJsonArgs)) {
-            throw new Error(`Invalid JSON argument format for command '${commandName}'. Expected a JSON object.`);
-        }
-
-        let commandFound = false;
+        // Find the Zod function
         for (const library of libraries) {
-            if (hasOwnProperty(library, commandName) && typeof library[commandName] === 'function') {
-                commandFound = true;
-                const func = library[commandName];
-                const argTypeDefs = func.__argTypes || [];
-                const finalArgs: any[] = [];
-
-                // Process arguments based on names defined in __argTypes
-                for (let i = 0; i < argTypeDefs.length; i++) {
-                    const argDef = argTypeDefs[i];
-                    const isRestParam = argDef.type.startsWith('...');
-
-                    if (isRestParam) {
-                        // Rest parameter: Expect an array in JSON under this name, or empty array if missing
-                        const restValues = hasOwnProperty(parsedJsonArgs, argDef.name) ? parsedJsonArgs[argDef.name] : [];
-                        if (!Array.isArray(restValues)) {
-                            throw new Error(`Expected an array for rest parameter '${argDef.name}' in command '${commandName}', but got ${typeof restValues}.`);
-                        }
-                         // Validate type of each element in the rest array
-                        validateType(restValues, argDef.type, argDef.name, commandName);
-                        // Add elements individually to finalArgs for function call spread
-                        finalArgs.push(...restValues);
-                        // Assume rest param is the last one
-                        if (i !== argTypeDefs.length - 1) {
-                            console.warn(`Warning: Rest parameter '${argDef.name}' is not the last defined argument for command '${commandName}'. Behavior might be unexpected.`);
-                        }
-                        // No need to check further JSON args for this function def once rest is handled
-                       // break; // This break might be wrong if we expect other named args *after* a conceptual rest arg in JSON - removing for now
-                    } else {
-                         // Normal named parameter
-                        if (!hasOwnProperty(parsedJsonArgs, argDef.name)) {
-                            // Handle optional arguments later if needed
-                            throw new Error(`Missing required argument '${argDef.name}' for command '${commandName}'.`);
-                        }
-                        const argValue = parsedJsonArgs[argDef.name];
-                        validateType(argValue, argDef.type, argDef.name, commandName);
-                        finalArgs.push(argValue);
-                    }
-
-                    // TODO: Check for extra JSON properties not defined in __argTypes? Maybe add a strict mode?
-                }
-
-                // Call the function
-                executionResult = func(...finalArgs);
-                break; // Command found and executed
+            if (hasOwnProperty(library, commandName)) {
+                zodFunc = library[commandName];
+                break;
             }
         }
 
-        if (!commandFound) {
-            throw new Error(`Command '${commandName}' not found in any library.`);
+        if (!zodFunc) {
+            throw new Error(`Command '${commandName}' not found.`);
         }
 
-    } catch (error: any) {
-        executionError = error instanceof Error ? error : new Error(String(error));
-    }
+        // Parse the JSON string input
+        const jsonArgsString = commandArgs[0];
+        let parsedJsonInput: unknown;
+        try {
+            parsedJsonInput = JSON.parse(jsonArgsString);
+        } catch (jsonError: any) {
+            throw new Error(`Invalid JSON provided for command '${commandName}': ${jsonError.message}`);
+        }
 
-    // Use console.debug for debug logs
-    console.debug(`DEBUG JSON: Executed command '${commandName}'. Result:`, { result: executionResult, error: executionError });
+        // Build the expected Zod schema for the JSON object
+        const { schema: jsonInputSchema, argNames, restArgName } = buildJsonInputSchema(zodFunc);
+
+        // Validate the parsed JSON against the schema
+        const validatedInput = jsonInputSchema.parse(parsedJsonInput);
+
+        // Map validated object properties back to tuple/spread format
+        const finalCallArgs: any[] = [];
+        argNames.forEach(name => {
+             finalCallArgs.push(validatedInput[name]);
+        });
+         if (restArgName && validatedInput[restArgName]) {
+            finalCallArgs.push(...(validatedInput[restArgName] as any[]));
+        }
+
+        // Execute the Zod function
+         // Check if return type is a promise
+         const returnsPromise = zodFunc._def.returns instanceof z.ZodPromise;
+         if (returnsPromise) {
+             // As this function isn't async, log a warning.
+             console.warn(`[${commandName}] Warning: Command is async, but JSON CLI execution is currently synchronous. Result might be a Promise object.`);
+         }
+         // Call Zod function with type assertion
+        executionResult = (zodFunc as any)(...finalCallArgs);
+
+    } catch (error: any) {
+         if (error instanceof ZodError) {
+             executionError = new Error(`Invalid JSON arguments for '${commandName}': ${error.errors.map(e => `'${e.path.join('.')}' ${e.message}`).join(', ')}`);
+         } else {
+            executionError = error instanceof Error ? error : new Error(String(error));
+         }
+    }
 
     // Handle printing result/error
     if (executionError) {
-        console.error(`Error executing command '${commandName}':`, executionError.message);
+        // Output error as JSON to stderr
+        console.error(JSON.stringify({ error: executionError.message }));
         process.exit(1);
     } else {
-        if (executionResult !== undefined) {
-            console.log(executionResult);
+        // Output result as JSON to stdout
+        try {
+             // Attempt to stringify. Handle potential circular references, though unlikely for simple returns.
+            const resultJson = JSON.stringify({ result: executionResult });
+            console.log(resultJson);
+        } catch (stringifyError: any) {
+            console.error(JSON.stringify({ error: `Failed to serialize result for command '${commandName}': ${stringifyError.message}` }));
+            process.exit(1);
         }
     }
-} 
+}

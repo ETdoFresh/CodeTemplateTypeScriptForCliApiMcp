@@ -6,6 +6,9 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+// --- Zod Import ---
+import { z } from 'zod';
+import { DefineFunction } from '../utils/zod-function-utils';
 
 // --- Dependencies needed by the repopack logic ---
 // Note: These dependencies must be added to the code-template-ts package.json
@@ -15,9 +18,6 @@ import ignore from 'ignore';
 import { isBinary } from 'istextorbinary';
 import strip from 'strip-comments';
 import { XMLBuilder } from 'fast-xml-parser'; // Assuming fast-xml-parser v5+
-
-// --- Import shared types from the host project ---
-import type { LibraryFunction, ArgInfo, ArgType } from '../cli-lib/shared'; // Adjust path if needed
 
 // --- Configuration (from repopack-server/src/config.ts) ---
 const defaultIgnoreList = [
@@ -579,85 +579,120 @@ async function packInternal(options: PackCodebaseOptions): Promise<string> {
 
 // --- Exported Library Functions ---
 
+// Define Zod Schemas for parameters
+const PackCodebaseParams = {
+    includePatterns: z.string().optional().describe('includePatterns'),
+    ignorePatterns: z.string().optional().describe('ignorePatterns'),
+    outputFormat: z.enum(['xml', 'md', 'txt']).optional().describe('outputFormat'),
+    outputTarget: z.enum(['stdout', 'file', 'clipboard']).optional().describe('outputTarget'),
+    removeComments: z.boolean().optional().describe('removeComments'),
+    removeEmptyLines: z.boolean().optional().describe('removeEmptyLines'),
+    fileSummary: z.boolean().optional().default(true).describe('fileSummary'),
+    directoryStructure: z.boolean().optional().default(true).describe('directoryStructure'),
+    noGitignore: z.boolean().optional().describe('noGitignore'),
+    noDefaultPatterns: z.boolean().optional().describe('noDefaultPatterns'),
+};
+
 /**
  * Packages a local code directory into a consolidated text format.
  * Mimics the pack_codebase MCP tool.
  */
-export const packLocal: LibraryFunction = async (
-    directory: string, // required
-    includePatterns?: string,
-    ignorePatterns?: string,
-    outputFormat?: string, // 'xml', 'md', 'txt'
-    outputTarget?: string, // 'stdout', 'file', 'clipboard'
-    removeComments?: boolean,
-    removeEmptyLines?: boolean,
-    fileSummary?: boolean,
-    directoryStructure?: boolean,
-    noGitignore?: boolean,
-    noDefaultPatterns?: boolean
-): Promise<string> => { // Return string (content or message)
-    try {
-        const options: PackCodebaseOptions = {
-            directory: normalizePathUri(directory), // Normalize path immediately
+export const packLocal = DefineFunction({
+  description: 'Packages a local code directory into a consolidated text format.',
+  args: z.tuple([
+    z.string().describe('directory'), // required
+    PackCodebaseParams.includePatterns,
+    PackCodebaseParams.ignorePatterns,
+    PackCodebaseParams.outputFormat,
+    PackCodebaseParams.outputTarget,
+        PackCodebaseParams.removeComments,
+        PackCodebaseParams.removeEmptyLines,
+        PackCodebaseParams.fileSummary,
+        PackCodebaseParams.directoryStructure,
+        PackCodebaseParams.noGitignore,
+        PackCodebaseParams.noDefaultPatterns,
+    ]),
+    return: z.string().describe('Output content or confirmation message'),
+    function: async (
+        directory,
+        includePatterns,
+        ignorePatterns,
+        outputFormat,
+        outputTarget,
+        removeComments,
+        removeEmptyLines,
+        fileSummary,
+        directoryStructure,
+        noGitignore,
+        noDefaultPatterns
+    ) => {
+        try {
+            const options: PackCodebaseOptions = {
+                directory: normalizePathUri(directory), // Normalize path immediately
             sourceIdentifier: normalizePathUri(directory), // Use normalized path as identifier
             includePatterns,
             ignorePatterns,
-            outputFormat: outputFormat === 'md' || outputFormat === 'txt' ? outputFormat : 'xml',
-            outputTarget: outputTarget === 'file' || outputTarget === 'clipboard' ? outputTarget : 'stdout',
+            outputFormat: outputFormat ?? 'xml', // Use default from schema if needed or hardcode
+            outputTarget: outputTarget ?? 'stdout',
             removeComments: !!removeComments,
             removeEmptyLines: !!removeEmptyLines,
-            fileSummary: fileSummary !== undefined ? !!fileSummary : true, // Default true
-            directoryStructure: directoryStructure !== undefined ? !!directoryStructure : true, // Default true
+            fileSummary: fileSummary, // Already defaulted by Zod
+            directoryStructure: directoryStructure, // Already defaulted by Zod
             noGitignore: !!noGitignore,
             noDefaultPatterns: !!noDefaultPatterns,
         };
         return await packInternal(options);
     } catch (error: any) {
         console.error(`[repopack-lib] Error in packLocal: ${error.message}`, error.stack);
-        return `<error>Error packing local directory: ${error.message}</error>`;
+        // Consider throwing the error instead of returning a string for better error handling upstream
+        throw new Error(`Error packing local directory: ${error.message}`);
+        // return `<error>Error packing local directory: ${error.message}</error>`;
     }
-};
-// Define __argTypes metadata for packLocal
-(packLocal as any).__argTypes = [
-    { name: "directory", type: "string" },
-    { name: "includePatterns", type: "string" }, // Treat optional as string, handle empty/null internally
-    { name: "ignorePatterns", type: "string" },
-    { name: "outputFormat", type: "string" }, // 'xml', 'md', 'txt'
-    { name: "outputTarget", type: "string" }, // 'stdout', 'file', 'clipboard'
-    { name: "removeComments", type: "boolean" },
-    { name: "removeEmptyLines", type: "boolean" },
-    { name: "fileSummary", type: "boolean" },
-    { name: "directoryStructure", type: "boolean" },
-    { name: "noGitignore", type: "boolean" },
-    { name: "noDefaultPatterns", type: "boolean" },
-] as ArgInfo[]; // Cast to ArgInfo[]
+  }
+});
 
 /**
  * Clones a remote GitHub repository and packages it.
  * Mimics the pack_remote_codebase MCP tool.
  */
-export const packRemote: LibraryFunction = async (
-    github_repo: string, // required
-    directory: string, // required - *target* directory for 'file' output
-    includePatterns?: string,
-    ignorePatterns?: string,
-    outputFormat?: string, // 'xml', 'md', 'txt'
-    outputTarget?: string, // 'stdout', 'file', 'clipboard'
-    removeComments?: boolean,
-    removeEmptyLines?: boolean,
-    fileSummary?: boolean,
-    directoryStructure?: boolean,
-    noGitignore?: boolean,
-    noDefaultPatterns?: boolean
-): Promise<string> => { // Return string (content or message)
-    let tempDir: string | undefined;
-    // Normalize the target directory *before* starting
-    const originalDirectoryNormalized = normalizePathUri(directory);
+export const packRemote = DefineFunction({
+  description: 'Clones a remote GitHub repository and packages it.',
+  args: z.tuple([
+    z.string().describe('github_repo'), // required
+    z.string().describe('directory'), // required - Target directory for 'file' output
+    PackCodebaseParams.includePatterns,
+    PackCodebaseParams.ignorePatterns,
+    PackCodebaseParams.outputFormat,
+    PackCodebaseParams.outputTarget,
+        PackCodebaseParams.removeComments,
+        PackCodebaseParams.removeEmptyLines,
+        PackCodebaseParams.fileSummary,
+        PackCodebaseParams.directoryStructure,
+        PackCodebaseParams.noGitignore,
+        PackCodebaseParams.noDefaultPatterns,
+    ]),
+    return: z.string().describe('Output content or confirmation message'),
+    function: async (
+        github_repo,
+        directory,
+        includePatterns,
+        ignorePatterns,
+        outputFormat,
+        outputTarget,
+        removeComments,
+    removeEmptyLines,
+        fileSummary,
+        directoryStructure,
+        noGitignore,
+        noDefaultPatterns
+    ) => {
+        let tempDir: string | undefined;
+        const originalDirectoryNormalized = normalizePathUri(directory);
 
-    try {
-        // 1. Create temp directory
-        tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'repopack-clone-'));
-        console.error(`[repopack-lib] Created temporary directory: ${tempDir}`);
+        try {
+            // 1. Create temp directory
+            tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'repopack-clone-'));
+            console.error(`[repopack-lib] Created temporary directory: ${tempDir}`);
 
         // 2. Clone repository
         const cloneUrl = github_repo;
@@ -681,35 +716,33 @@ export const packRemote: LibraryFunction = async (
 
         // 3. Prepare options for packInternal
         const options: PackCodebaseOptions = {
-            // Use the *temporary* directory for scanning files
-            directory: tempDir,
-            // Use the *original normalized* directory for file output target calculation inside packInternal
-            // directory: originalDirectoryNormalized, // << REMOVE THIS DUPLICATE
-            outputTargetDirectory: originalDirectoryNormalized, // Use the new property
+            directory: tempDir, // Use the *temporary* directory for scanning files
+            outputTargetDirectory: originalDirectoryNormalized, // Use the new property for file output
             sourceIdentifier: github_repo, // Identify source as the remote URL
-            github_repo, // Keep original repo url if needed?
+            github_repo,
             includePatterns,
             ignorePatterns,
-            outputFormat: outputFormat === 'md' || outputFormat === 'txt' ? outputFormat : 'xml',
-            outputTarget: outputTarget === 'file' || outputTarget === 'clipboard' ? outputTarget : 'stdout',
+            outputFormat: outputFormat ?? 'xml',
+            outputTarget: outputTarget ?? 'stdout',
             removeComments: !!removeComments,
             removeEmptyLines: !!removeEmptyLines,
-            fileSummary: fileSummary !== undefined ? !!fileSummary : true,
-            directoryStructure: directoryStructure !== undefined ? !!directoryStructure : true,
+            fileSummary: fileSummary, // Already defaulted by Zod
+            directoryStructure: directoryStructure, // Already defaulted by Zod
             noGitignore: !!noGitignore,
             noDefaultPatterns: !!noDefaultPatterns,
-            repoOwner, // Pass owner/name for potential filename use
+            repoOwner,
             repoName,
         };
 
         // 4. Call internal packing logic with the *temp* directory as the source to scan
-        options.directory = tempDir; // Set directory to temp *for scanning*
         const result = await packInternal(options);
-        return result; // Return result from packInternal
+        return result;
 
     } catch (error: any) {
         console.error(`[repopack-lib] Error in packRemote: ${error.message}`, error.stack);
-        return `<error>Error packing remote repository: ${error.message}</error>`;
+        // Consider throwing the error instead of returning a string for better error handling upstream
+        throw new Error(`Error packing remote repository: ${error.message}`);
+        // return `<error>Error packing remote repository: ${error.message}</error>`;
     } finally {
         // 5. Clean up temp directory
         if (tempDir) {
@@ -722,29 +755,5 @@ export const packRemote: LibraryFunction = async (
             }
         }
     }
-};
-// Define __argTypes metadata for packRemote
-(packRemote as any).__argTypes = [
-    { name: "github_repo", type: "string" },
-    { name: "directory", type: "string" }, // Target directory for 'file' output
-    { name: "includePatterns", type: "string" },
-    { name: "ignorePatterns", type: "string" },
-    { name: "outputFormat", type: "string" }, // 'xml', 'md', 'txt'
-    { name: "outputTarget", type: "string" }, // 'stdout', 'file', 'clipboard'
-    { name: "removeComments", type: "boolean" },
-    { name: "removeEmptyLines", type: "boolean" },
-    { name: "fileSummary", type: "boolean" },
-    { name: "directoryStructure", type: "boolean" },
-    { name: "noGitignore", type: "boolean" },
-    { name: "noDefaultPatterns", type: "boolean" },
-] as ArgInfo[]; // Cast to ArgInfo[]
-
-// --- Type Definition for strip-comments (from repopack-server/src/types.d.ts) ---
-// This should ideally be in a shared types file or automatically inferred if using modern TS/node settings
-// declare module 'strip-comments' {
-//     interface StripOptions { language?: string; preserveNewlines?: boolean; }
-//     function strip(input: string, options?: StripOptions): string;
-//     export = strip;
-// }
-// Note: For the library to work, the user needs to install the dependencies:
-// npm install clipboardy globby@^14 ignore istextorbinary strip-comments fast-xml-parser 
+  }
+}); 

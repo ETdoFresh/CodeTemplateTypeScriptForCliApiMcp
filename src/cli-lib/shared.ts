@@ -1,17 +1,11 @@
 // src/cli-lib/shared.ts
+import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodError } from 'zod';
 
 // --- Shared Types ---
-export interface ArgInfo {
-    name: string;
-    type: ArgType;
-    optional?: boolean;
-    description?: string;
-}
-export type LibraryFunction = ((...args: any[]) => any) & { __argTypes?: ArgInfo[] };
-export type ArgType = string | number | boolean | string[] | number[] | boolean[] | '...string[]' | '...number[]' | '...boolean[]';
+
 export interface Command {
     commandName: string;
-    commandArgs: string[];
+    commandArgs: string[]; // Raw string args from CLI
 }
 export interface ExecutionResult {
     command: Command;
@@ -25,29 +19,31 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
   return obj.hasOwnProperty(prop);
 }
 
-function parseStringsToNumbers(args: string[]): number[] {
-    return args.map(arg => {
-        const num = parseFloat(arg);
-        if (isNaN(num)) {
-            throw new Error(`Invalid number argument: ${arg}`);
+// Helper to coerce string CLI args based on Zod type
+function coerceCliArg(argString: string, zodType: ZodTypeAny, argName: string, commandName: string): any {
+    try {
+        if (zodType instanceof z.ZodNumber) {
+            return z.coerce.number().parse(argString);
         }
-        return num;
-    });
-}
-
-function parseStringsToBooleans(args: string[]): boolean[] {
-    return args.map(arg => {
-        const lowerArg = arg.toLowerCase();
-        if (lowerArg === 'true' || lowerArg === '1' || lowerArg === 'yes' || lowerArg === 'on') {
-            return true;
-        } else if (lowerArg === 'false' || lowerArg === '0' || lowerArg === 'no' || lowerArg === 'off') {
-            return false;
+        if (zodType instanceof z.ZodBoolean) {
+            return z.coerce.boolean().parse(argString);
         }
-        throw new Error(`Invalid boolean argument: ${arg}`);
-    });
+        if (zodType instanceof z.ZodString) {
+            return z.string().parse(argString); // Still validate string
+        }
+        // Add other potential coercions if needed (e.g., dates)
+        return argString; // Default to string if no specific coercion matches
+    } catch (error) {
+        if (error instanceof ZodError) {
+            // Provide a more specific error message for CLI context
+             throw new Error(`Invalid format for argument '${argName}' in command '${commandName}'. Expected ${zodType.constructor.name.replace('Zod','')}. ${error.errors[0]?.message || ''}`);
+        }
+        throw error; // Re-throw other errors
+    }
 }
 
 // --- Exported Argument Processor (Simplified) ---
+// processArgs remains the same as it deals with raw string splitting
 export function processArgs(rawArgs: string[]): Command[] {
     const commands: Command[] = [];
 
@@ -93,10 +89,10 @@ export function processArgs(rawArgs: string[]): Command[] {
     return commands;
 }
 
-// --- Exported Command Executor ---
+// --- Exported Command Executor (Reverted to Duck Typing Check) ---
 export function executeParsedCommands(
     commands: Command[],
-    libraries: Record<string, LibraryFunction>[]
+    libraries: Record<string, ZodFunction<any, any>>[]
 ): ExecutionResult[] {
     const results: ExecutionResult[] = [];
 
@@ -104,182 +100,90 @@ export function executeParsedCommands(
         const { commandName, commandArgs } = command;
         let commandFound = false;
         let executionError: Error | undefined = undefined;
+        let executionResult: any;
 
         for (const library of libraries) {
-            if (hasOwnProperty(library, commandName) && typeof library[commandName] === 'function') {
-                commandFound = true;
-                let executionResult: any;
+             if (hasOwnProperty(library, commandName)) {
+                const func = library[commandName];
+
+                commandFound = true; // Assume found if property exists
+
+                // --- Zod Function Handling (Assumed) ---
                 try {
-                    const func = library[commandName];
-                    const argTypeDefs = func.__argTypes || [];
-                    const processedArgs: any[] = [];
-                    let commandArgIndex = 0;
+                    const zodFunc = func as ZodFunction<any, any>; // Assert type
 
-                    // Determine expected signature type
-                    // Check if the type is a string before calling string methods
-                    const isSingleArrayParam = argTypeDefs.length === 1 &&
-                        typeof argTypeDefs[0].type === 'string' && // Type guard
-                        argTypeDefs[0].type.endsWith('[]') &&
-                        !argTypeDefs[0].type.startsWith('...');
+                    // Revert to accessing args via _def, but keep check
+                    const argTupleSchema = zodFunc._def.args as ZodTuple<any, any>;
 
-                    // --- Calculate hasRestParameter safely ---
-                    const lastArgDefType = argTypeDefs.length > 0 ? argTypeDefs[argTypeDefs.length - 1].type : undefined;
-                    const lastArgTypeString = typeof lastArgDefType === 'string' ? lastArgDefType : undefined;
-                    const hasRestParameter = !!lastArgTypeString?.startsWith('...'); // Use temporary var and ensure boolean
-                    // --- End safe calculation ---
-
-                    // Adjust expected counts based on the refined definitions
-                    const expectedMinArgCount = argTypeDefs.length - (hasRestParameter ? 1 : 0);
-                    // If it's a single array param, max count is effectively infinite *for the input args* because they all go into the array
-                    const expectedMaxArgCount = (hasRestParameter || isSingleArrayParam) ? Infinity : argTypeDefs.length;
-                    const effectiveMinArgCount = (hasRestParameter || isSingleArrayParam) ? Math.max(1, expectedMinArgCount) : expectedMinArgCount;
-
-                    // Argument Count Validation
-                    // Let parsing handle errors if too few args are given for the defined parameters before a rest/array
-                    if (!hasRestParameter && !isSingleArrayParam && commandArgs.length !== expectedMinArgCount) {
-                        // Error only if exact # of scalar args don't match
-                         throw new Error(`Command '${commandName}' expects exactly ${expectedMinArgCount} arguments, but got ${commandArgs.length}.`);
-                    } else if ((hasRestParameter || isSingleArrayParam) && commandArgs.length < effectiveMinArgCount) {
-                        // Error if not enough args provided for the minimum required before/for the rest/array part
-                         let errorMsg = `Command '${commandName}' expects at least ${effectiveMinArgCount} arguments, but got ${commandArgs.length}.`;
-                         throw new Error(errorMsg);
-                    }
-                    // Otherwise, allow parsing to proceed (parsing loop will handle consumption)
-
-                    // Argument Parsing Loop
-                    for (let i = 0; i < argTypeDefs.length; i++) {
-                        const argDef = argTypeDefs[i];
-                        const isLastArgDef = i === argTypeDefs.length - 1;
-
-                        // Use the refined definitions for parsing
-                        const argTypeString = typeof argDef.type === 'string' ? argDef.type : undefined;
-
-                        const isRestForParsing = isLastArgDef && argTypeString?.startsWith('...');
-
-                        const isSingleArrayForParsing = isLastArgDef &&
-                            argTypeString?.endsWith('[]') &&
-                            !argTypeString?.startsWith('...');
-
-                        if (isRestForParsing || isSingleArrayForParsing) {
-                            const remainingArgs = commandArgs.slice(commandArgIndex);
-                            let parsedArray: any[];
-                            switch (argDef.type) {
-                                case 'number[]': // Handle single array param
-                                case '...number[]': // Handle rest param
-                                    parsedArray = parseStringsToNumbers(remainingArgs); break;
-                                case 'string[]': // Handle single array param
-                                case '...string[]': // Handle rest param
-                                    parsedArray = remainingArgs; break;
-                                case 'boolean[]': // Handle single array param
-                                case '...boolean[]': // Handle rest param
-                                    parsedArray = parseStringsToBooleans(remainingArgs); break;
-                                default: throw new Error(`Internal error: Invalid array/rest parameter type '${argDef.type}' for ${commandName}`);
-                            }
-                             // Store the *whole array* for later use in the function call
-                            processedArgs.push(parsedArray);
-                            commandArgIndex = commandArgs.length;
-                        } else {
-                            if (commandArgIndex >= commandArgs.length) throw new Error(`Internal error: Not enough args for parameter '${argDef.name}' in '${commandName}'.`);
-                            const currentArg = commandArgs[commandArgIndex];
-                            switch (argDef.type) {
-                                case 'number': processedArgs.push(parseStringsToNumbers([currentArg])[0]); break;
-                                case 'string': processedArgs.push(currentArg); break;
-                                case 'boolean': processedArgs.push(parseStringsToBooleans([currentArg])[0]); break;
-                                default: throw new Error(`Invalid argument type '${argDef.type}' for non-rest parameter '${argDef.name}' in '${commandName}'.`);
-                            }
-                            commandArgIndex++;
-                        }
+                    // Check if argTupleSchema is valid before proceeding
+                    if (!argTupleSchema || !argTupleSchema._def) {
+                        throw new Error(`Could not retrieve argument schema from zodFunc._def for command '${commandName}'. _def content: ${JSON.stringify(zodFunc?._def)}`);
                     }
 
-                    // Function Call Logic
-                    if (hasRestParameter) {
-                        const scalarArgs = processedArgs.slice(0, -1);
-                        const restArgsArray = processedArgs[processedArgs.length - 1] || [];
-                        executionResult = (func as (...args: any[]) => any)(...scalarArgs, ...restArgsArray);
-                    } else if (isSingleArrayParam) {
-                         executionResult = (func as (arg: any[]) => any)(processedArgs[0]);
-                    } else {
-                        executionResult = (func as (...args: any[]) => any)(...processedArgs);
+                    const fixedArgsSchemas = argTupleSchema._def.items || [];
+                    const restArgSchema = argTupleSchema._def.rest;
+                    const finalCallArgs: any[] = [];
+                    let cliArgIndex = 0;
+
+                    // 1. Parse Fixed Arguments
+                    for (let i = 0; i < fixedArgsSchemas.length; i++) {
+                         const argSchema = fixedArgsSchemas[i];
+                         const argName = argSchema.description || `arg${i}`;
+                         const isOptional = argSchema.isOptional();
+
+                         if (cliArgIndex >= commandArgs.length) {
+                             if (isOptional) {
+                                 finalCallArgs.push(undefined);
+                                 continue;
+                             } else {
+                                 throw new Error(`Expected at least ${fixedArgsSchemas.length} arguments, but got ${commandArgs.length}.`);
+                             }
+                         }
+                         const coercedValue = coerceCliArg(commandArgs[cliArgIndex], argSchema, argName, commandName);
+                         finalCallArgs.push(coercedValue);
+                         cliArgIndex++;
                     }
+
+                    // 2. Parse Rest Arguments
+                    if (restArgSchema) {
+                        const restArgsStrings = commandArgs.slice(cliArgIndex);
+                        const restArgName = restArgSchema.description || 'restArgs';
+                        const coercedRestValues = restArgsStrings.map(argStr =>
+                            coerceCliArg(argStr, restArgSchema, restArgName, commandName)
+                        );
+                        finalCallArgs.push(...coercedRestValues);
+                    } else if (cliArgIndex < commandArgs.length) {
+                        throw new Error(`Received too many arguments. Expected ${fixedArgsSchemas.length}, got ${commandArgs.length}.`);
+                    }
+
+                    // 3. Execute the Zod function
+                    const returnsPromise = zodFunc._def.returns instanceof z.ZodPromise;
+                    if (returnsPromise) {
+                        console.warn(`[${commandName}] Warning: Command is async, but CLI execution is currently synchronous. Result might be a Promise object.`);
+                    }
+                     // Use type assertion to bypass potential linter issues
+                    executionResult = (zodFunc as any)(...finalCallArgs);
 
                 } catch (error: any) {
-                     executionError = error instanceof Error ? error : new Error(String(error));
+                    if (error instanceof ZodError) {
+                        executionError = new Error(`Invalid arguments for '${commandName}': ${error.errors.map(e => e.message).join(', ')}`);
+                    } else {
+                        executionError = error instanceof Error ? error : new Error(String(error));
+                    }
                 }
-                 // Now push the result object *inside* the library loop, immediately after try/catch
-                 // This ensures we capture the correct executionResult/executionError for *this* specific function attempt
-                 // console.error(`DEBUG SHARED: Pushing result:`, { result: executionResult, error: executionError });
-                 results.push({ command, result: executionResult, error: executionError });
-                 break; // Command found and result recorded
-            }
+
+                // Push result after attempting execution (always assumed Zod now)
+                results.push({ command, result: executionResult, error: executionError });
+                break; // Command handled, move to next command in input
+             }
         }
 
         if (!commandFound) {
-            executionError = new Error(`Command '${commandName}' not found.`);
-             // Push the error result if command wasn't found in any library
-             // console.error(`DEBUG SHARED: Pushing command not found error:`, { error: executionError });
-             results.push({ command, result: undefined, error: executionError });
+            results.push({ command, error: new Error(`Command '${commandName}' not found.`) });
         }
     }
     return results;
 }
 
-// Exported helper for detailed type validation (moved from cli-json-lib)
-export function validateType(value: any, expectedType: ArgType, argName: string, commandName: string): void {
-    const type = typeof value;
-
-    // Restructure switch for better type narrowing
-    switch (expectedType) {
-        case 'string':
-        case 'number':
-        case 'boolean':
-            // Primitive type validation
-            if (type !== expectedType) {
-                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected ${expectedType}, got ${type}.`);
-            }
-            break;
-
-        // String array/rest
-        case 'string[]':
-        case '...string[]':
-            if (!Array.isArray(value)) {
-                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected string array, got ${type}.`);
-            }
-            for (const element of value) {
-                if (typeof element !== 'string' && element !== null && element !== undefined) {
-                    throw new Error(`Type mismatch for element in string array '${argName}' of command '${commandName}'. Expected string, got ${typeof element}.`);
-                }
-            }
-            break;
-
-        // Number array/rest
-        case 'number[]':
-        case '...number[]':
-            if (!Array.isArray(value)) {
-                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected number array, got ${type}.`);
-            }
-            for (const element of value) {
-                if (typeof element !== 'number' && element !== null && element !== undefined) {
-                    throw new Error(`Type mismatch for element in number array '${argName}' of command '${commandName}'. Expected number, got ${typeof element}.`);
-                }
-            }
-            break;
-
-        // Boolean array/rest
-        case 'boolean[]':
-        case '...boolean[]':
-            if (!Array.isArray(value)) {
-                throw new Error(`Type mismatch for argument '${argName}' in command '${commandName}'. Expected boolean array, got ${type}.`);
-            }
-            for (const element of value) {
-                if (typeof element !== 'boolean' && element !== null && element !== undefined) {
-                    throw new Error(`Type mismatch for element in boolean array '${argName}' of command '${commandName}'. Expected boolean, got ${typeof element}.`);
-                }
-            }
-            break;
-
-        default:
-            // This should now be correctly unreachable
-            const exhaustiveCheck: never = expectedType;
-            throw new Error(`Internal error: Unsupported argument type '${exhaustiveCheck}' for validation.`);
-    }
-}
+// Remove the old validateType function as Zod handles validation
+// export function validateType(...) { ... }

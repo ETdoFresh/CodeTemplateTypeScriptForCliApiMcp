@@ -1,22 +1,12 @@
 import readline from 'readline';
+import { ZodFunction } from 'zod';
 
-// Import shared components from cli-lib
 import {
-    LibraryFunction,
     processArgs,
     executeParsedCommands,
-    Command, // Import Command if needed for ExecutionResult typing below (optional)
-    ExecutionResult // Import ExecutionResult if needed for typing below (optional)
 } from '../cli-lib/shared.js'; // Adjust path and add .js extension
 
-// Keep type guard if needed
-function hasOwnProperty<X extends {}, Y extends PropertyKey>
-  (obj: X, prop: Y): obj is X & Record<Y, unknown> {
-  return Object.prototype.hasOwnProperty.call(obj, prop);
-}
-
-
-export const runRepl = (libraries: Record<string, LibraryFunction>[]) => {
+export const runRepl = (libraries: Record<string, ZodFunction<any, any>>[]) => {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,

@@ -1,11 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from 'zod';
+import { z, ZodFunction } from 'zod';
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
-// Import shared types and validation
-import { LibraryFunction, ArgInfo, ArgType, validateType } from '../cli-lib/shared';
 
 // Helper to check if a property exists on an object (local copy)
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
@@ -75,7 +72,7 @@ function buildZodSchema(argTypeDefs: ArgInfo[], commandName: string): z.ZodObjec
 }
 
 // Make runMcp accept the libraries and export it
-export async function runMcp(libraries: Record<string, LibraryFunction>[]) {
+export async function runMcp(libraries: Record<string, ZodFunction<any, any>>[]) {
 
   const server = new McpServer({
     name: "mcp-dynamic-lib-server",
@@ -93,7 +90,7 @@ export async function runMcp(libraries: Record<string, LibraryFunction>[]) {
     for (const funcName in library) {
       // Check if the property is a function and owned by the object (not inherited)
       if (Object.prototype.hasOwnProperty.call(library, funcName) && typeof library[funcName] === 'function') {
-        const originalFunction = library[funcName] as LibraryFunction;
+        const originalFunction = library[funcName];
         const isCalculatorCommand = calculatorCommands.includes(funcName);
 
         // Get __argTypes for the function
