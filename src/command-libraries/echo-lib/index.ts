@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DefineFunction } from "../utils/zod-function-utils";
+import { DefineFunction } from "../../utils/zod-function-utils";
 
 export const echo = DefineFunction({
   args: z.tuple([]).rest(z.string()).describe('The strings to echo'),

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DefineFunction } from "../utils/zod-function-utils";
+import { DefineFunction } from "../../utils/zod-function-utils";
 
 export const helloString = DefineFunction({
   description: 'Greets with the provided string',

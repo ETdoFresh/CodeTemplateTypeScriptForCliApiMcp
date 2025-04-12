@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 // Restore static imports
-import * as calculator from './calculator-lib';
-import * as echoLib from './echo-lib';
-import * as helloLib from './hello-lib';
-import { runCli } from './cli-lib';
-import { runApi } from './api-lib';
-import { runMcp } from './mcp-lib';
-import { runRepl } from './repl-lib';
-import { runCliJson } from './cli-json-lib';
-import * as repopackLib from './repopack-lib';
+import * as calculator from './command-libraries/calculator-lib';
+import * as echoLib from './command-libraries/echo-lib';
+import * as helloLib from './command-libraries/hello-lib';
+import { runCli } from './interface-libraries/cli-lib';
+import { runApi } from './interface-libraries/api-lib';
+import { runMcp } from './interface-libraries/mcp-lib';
+import { runRepl } from './interface-libraries/repl-lib';
+import { runCliJson } from './interface-libraries/cli-json-lib';
+import * as repopackLib from './command-libraries/repopack-lib';
 import process from 'process';
 import fs from 'fs';
 import path from 'path';
@@ -42,12 +42,11 @@ const defaultConfig: Config = {
 };
 
 // Reintroduce allLibraries map for static modules
-// Use explicit double casting (via unknown) to satisfy the index signature type
 const allLibraries: Record<string, Record<string, ZodFunction<any, any>>> = {
     calculator: calculator as unknown as Record<string, ZodFunction<any, any>>,
-    echo: echoLib as unknown as Record<string, ZodFunction<any, any>>, // Cast echoLib as well
-    // hello: helloLib as unknown as Record<string, ZodFunction<any, any>>, // Add hello and repopack when ready
-    // repopack: repopackLib as unknown as Record<string, ZodFunction<any, any>>,
+    echo: echoLib as unknown as Record<string, ZodFunction<any, any>>,
+    hello: helloLib as unknown as Record<string, ZodFunction<any, any>>,
+    repopack: repopackLib as unknown as Record<string, ZodFunction<any, any>>,
 };
 
 // Wrap execution in an async function (still useful if any run* function becomes async)

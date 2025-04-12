@@ -8,7 +8,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 // --- Zod Import ---
 import { z } from 'zod';
-import { DefineFunction } from '../utils/zod-function-utils';
+import { DefineFunction } from '../../utils/zod-function-utils';
 
 // --- Dependencies needed by the repopack logic ---
 // Note: These dependencies must be added to the code-template-ts package.json

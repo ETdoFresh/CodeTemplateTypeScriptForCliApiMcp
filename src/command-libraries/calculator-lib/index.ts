@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DefineFunction } from "../utils/zod-function-utils"; // Import the helper
+import { DefineFunction } from "../../utils/zod-function-utils"; // Import the helper
 
 // --- Calculator Functions ---
 export const add = DefineFunction({
