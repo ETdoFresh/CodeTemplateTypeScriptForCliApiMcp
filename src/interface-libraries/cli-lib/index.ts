@@ -36,7 +36,38 @@ function zodTypeToYargsType(zodType: ZodTypeAny): 'string' | 'number' | 'boolean
 
 // --- CLI Entry Point ---
 export const runCli = async (libraries: DefinedFunctionModule[]) => {
-    const cli = yargs(hideBin(process.argv));
+    // --- Argument Pre-processing for Positional packLocal/packRemote --- START
+    let args = hideBin(process.argv);
+    const commandName = args[0];
+    const potentialFirstArg = args[1];
+
+    if (commandName === 'packLocal' && potentialFirstArg && !potentialFirstArg.startsWith('-')) {
+        // Input: packLocal <directory> [other flags...]
+        // Output: packLocal --directory <directory> [other flags...]
+        args.splice(1, 0, '--directory');
+    } else if (commandName === 'packRemote') {
+        const potentialSecondArg = args[2];
+        let githubRepoInserted = false;
+        let directoryInserted = false;
+
+        // Check first positional arg (github_repo)
+        if (potentialFirstArg && !potentialFirstArg.startsWith('-')) {
+            args.splice(1, 0, '--github_repo');
+            githubRepoInserted = true;
+        }
+
+        // Check second positional arg (directory)
+        // Need to adjust index based on whether --github_repo was inserted
+        const secondArgIndex = githubRepoInserted ? 3 : 2;
+        const actualPotentialSecondArg = args[secondArgIndex];
+        if (actualPotentialSecondArg && !actualPotentialSecondArg.startsWith('-')) {
+            args.splice(secondArgIndex, 0, '--directory');
+            directoryInserted = true;
+        }
+    }
+    // --- Argument Pre-processing --- END
+
+    const cli = yargs(args); // Use the potentially modified args array
 
     libraries.forEach(library => {
         Object.entries(library).forEach(([commandName, func]) => {
