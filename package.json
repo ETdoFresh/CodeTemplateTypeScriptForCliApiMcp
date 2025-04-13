@@ -36,7 +36,9 @@
     "@types/node": "^20.11.0",
     "@types/strip-comments": "^2.0.4",
     "@types/yargs": "^17.0.33",
+    "@types/yargs-parser": "^21.0.3",
     "esbuild": "^0.25.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "yargs-parser": "^21.1.1"
   }
 }

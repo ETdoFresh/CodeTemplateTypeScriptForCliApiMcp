@@ -19,6 +19,7 @@ export const runRepl = (libraries: DefinedFunctionModule[]) => {
 
   console.log('Interactive CLI. Type "exit" or "quit" to leave.');
   console.log('Available commands:', availableCommandNames.join(', '));
+  console.log('Note: Commands expecting options (like packLocal) use named flags, e.g., packLocal --directory /path --outputTarget file');
   rl.prompt();
 
   rl.on('line', (line) => {
