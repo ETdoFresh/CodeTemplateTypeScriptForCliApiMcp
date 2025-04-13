@@ -5,6 +5,6 @@ alwaysApply: true
 ---
 # NPM Rules
 
-## Run Build and Start on Task Completion
+## Prefer Automatic Run or Test
 
-This rule automatically runs `npm run build; npm run start ...` whenever a task is completed in Cursor.
+When it's time to `npm run start` or `npm run test` the results of a task. I prefer that this is done automatically instead of waiting for the users to run it themselves.

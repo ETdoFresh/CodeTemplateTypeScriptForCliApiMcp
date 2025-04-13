@@ -36,33 +36,58 @@ function zodTypeToYargsType(zodType: ZodTypeAny): 'string' | 'number' | 'boolean
 
 // --- CLI Entry Point ---
 export const runCli = async (libraries: DefinedFunctionModule[]) => {
-    // --- Argument Pre-processing for Positional packLocal/packRemote --- START
+    // --- Argument Pre-processing for Positional Object Arguments --- START
     let args = hideBin(process.argv);
     const commandName = args[0];
-    const potentialFirstArg = args[1];
+    const potentialCommand = libraries
+        .flatMap(lib => Object.entries(lib))
+        .find(([name, func]) => name === commandName && isObjectFunction(func));
 
-    if (commandName === 'packLocal' && potentialFirstArg && !potentialFirstArg.startsWith('-')) {
-        // Input: packLocal <directory> [other flags...]
-        // Output: packLocal --directory <directory> [other flags...]
-        args.splice(1, 0, '--directory');
-    } else if (commandName === 'packRemote') {
-        const potentialSecondArg = args[2];
-        let githubRepoInserted = false;
-        let directoryInserted = false;
+    if (potentialCommand) {
+        const [_, func] = potentialCommand;
+        const funcDef = (func as DefinedObjectFunction<any>)._def;
+        const argsSchema = funcDef?.argsSchema;
 
-        // Check first positional arg (github_repo)
-        if (potentialFirstArg && !potentialFirstArg.startsWith('-')) {
-            args.splice(1, 0, '--github_repo');
-            githubRepoInserted = true;
-        }
+        if (argsSchema instanceof ZodObject) {
+            // Determine the order of arguments to check for positional values
+            const positionalCheckOrder = funcDef.positionalArgsOrder || [];
+            let fallbackRequiredStringArgs: string[] = [];
 
-        // Check second positional arg (directory)
-        // Need to adjust index based on whether --github_repo was inserted
-        const secondArgIndex = githubRepoInserted ? 3 : 2;
-        const actualPotentialSecondArg = args[secondArgIndex];
-        if (actualPotentialSecondArg && !actualPotentialSecondArg.startsWith('-')) {
-            args.splice(secondArgIndex, 0, '--directory');
-            directoryInserted = true;
+            // If no explicit order, determine fallback: required string args from schema
+            if (positionalCheckOrder.length === 0) {
+                Object.entries(argsSchema.shape).forEach(([name, type]) => {
+                    const zodType = type as ZodTypeAny;
+                    const isOptional = zodType.isOptional() || zodType._def.typeName === 'ZodDefault';
+                    const isString = zodTypeToYargsType(zodType) === 'string';
+                    if (!isOptional && isString) {
+                        fallbackRequiredStringArgs.push(name);
+                    }
+                });
+            }
+
+            // Use explicit order if available, otherwise fallback
+            const argsToMapPositionally = positionalCheckOrder.length > 0 
+                ? positionalCheckOrder 
+                : fallbackRequiredStringArgs;
+
+            let currentArgIndex = 1; // Start checking args after the command name
+            let positionalMapIndex = 0;
+
+            // Iterate through args, inserting flags for positional values based on determined order
+            while (positionalMapIndex < argsToMapPositionally.length && currentArgIndex < args.length) {
+                const currentArgValue = args[currentArgIndex];
+                if (currentArgValue && !currentArgValue.startsWith('-')) { // Check if it exists and is not a flag
+                    // Found a positional argument, map it to the next required string arg
+                    const argNameToInsert = argsToMapPositionally[positionalMapIndex];
+                    args.splice(currentArgIndex, 0, `--${argNameToInsert}`);
+                    positionalMapIndex++;
+                    currentArgIndex += 2; // Skip the inserted flag and the value itself
+                } else {
+                    // Found a flag or end of args, skip potential flag value
+                    // Check if next arg exists and doesn't start with '-' to determine if it's a value
+                    currentArgIndex += (args[currentArgIndex + 1] && !args[currentArgIndex + 1].startsWith('-')) ? 2 : 1;
+                }
+            }
         }
     }
     // --- Argument Pre-processing --- END

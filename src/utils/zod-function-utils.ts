@@ -42,7 +42,8 @@ export function DefineFunction<TArgs extends ZodTuple<any, any>, TReturn extends
 // Options specific to defining functions with an object arg schema
 interface DefineObjectFunctionOptions<TArgs extends ZodObject<any>> {
   description: string;
-  argsSchema: TArgs; 
+  argsSchema: TArgs;
+  positionalArgsOrder?: Extract<keyof z.infer<TArgs>, string>[]; // Optional explicit order
   function: (args: z.infer<TArgs>) => Promise<void>; // Expect Promise<void>
 }
 
@@ -50,8 +51,9 @@ interface DefineObjectFunctionOptions<TArgs extends ZodObject<any>> {
 // EXPORT this type
 export type DefinedObjectFunction<TArgs extends ZodObject<any>> =
     ((args: z.infer<TArgs>) => Promise<void>) & {
-         _def: ZodFunction<ZodTuple<[TArgs], null>, z.ZodVoid>['_def'] & { 
-             argsSchema: TArgs; 
+         _def: ZodFunction<ZodTuple<[TArgs], null>, z.ZodVoid>['_def'] & {
+             argsSchema: TArgs;
+             positionalArgsOrder?: string[]; // Attach the order here as well
          };
     };
 
@@ -80,7 +82,9 @@ export function DefineObjectFunction<TArgs extends ZodObject<any>>(
       typeName: ZodFirstPartyTypeKind.ZodFunction, // Use the enum member
       description: options.description,
       // Add our custom property to identify object-based functions easily
-      argsSchema: options.argsSchema
+      argsSchema: options.argsSchema,
+      // Attach the optional positional order
+      positionalArgsOrder: options.positionalArgsOrder
   };
 
   // Attach the definition to the callable function

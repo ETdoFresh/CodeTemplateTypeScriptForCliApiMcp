@@ -65,6 +65,7 @@ export const packRemote = DefineObjectFunction({
   argsSchema: PackCodebaseArgsSchema.extend({
       github_repo: z.string().describe('URL of the GitHub repository to clone (required).')
   }),
+  positionalArgsOrder: ['github_repo', 'directory'],
   function: async (optionsInput) => {
     const { github_repo, directory, ...restOptions } = optionsInput;
 
