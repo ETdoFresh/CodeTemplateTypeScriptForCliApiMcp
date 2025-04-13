@@ -12,7 +12,8 @@
   "scripts": {
     "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=node --format=esm --target=node20 --sourcemap --external:child_process --external:clipboardy --external:globby",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "pretest": "npm run build",
+    "test": "vitest run",
     "prepare": "npm run build",
     "hello": "ts-node src/hello.ts"
   },
@@ -39,6 +40,7 @@
     "@types/yargs-parser": "^21.0.3",
     "esbuild": "^0.25.2",
     "typescript": "^5.3.3",
+    "vitest": "^3.1.1",
     "yargs-parser": "^21.1.1"
   }
 }

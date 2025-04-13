@@ -122,5 +122,6 @@ function zodTypeToYargsType(zodType: ZodTypeAny): 'string' | 'number' | 'boolean
         return zodTypeToYargsType(zodType._def.innerType);
     }
     // Add more mappings if needed (e.g., for dates)
+    console.warn(`[yargs-setup] Unsupported Zod type for yargs conversion: ${zodType.constructor.name}. Treating as string.`);
     return 'string'; // Default or fallback type
 } 

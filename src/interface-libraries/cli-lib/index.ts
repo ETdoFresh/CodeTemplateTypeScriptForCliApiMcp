@@ -30,14 +30,13 @@ function zodTypeToYargsType(zodType: ZodTypeAny): 'string' | 'number' | 'boolean
         return zodTypeToYargsType(zodType._def.innerType);
     }
     // Add more mappings if needed (e.g., for dates)
+    console.warn(`[yargs-setup] Unsupported Zod type for yargs conversion: ${zodType.constructor.name}. Treating as string.`);
     return 'string'; // Default or fallback type
 }
 
 // --- CLI Entry Point ---
 export const runCli = async (libraries: DefinedFunctionModule[]) => {
     const cli = yargs(hideBin(process.argv));
-
-    console.log("Setting up CLI commands...");
 
     libraries.forEach(library => {
         Object.entries(library).forEach(([commandName, func]) => {

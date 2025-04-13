@@ -32,20 +32,23 @@ const args = process.argv.slice(2);
 
 // --- Execution Logic (Wrap in Async IIFE to allow top-level await) ---
 (async () => {
+    // Only log startup messages if not in test environment
+    const isTestEnv = process.env.NODE_ENV === 'test';
+
     if (args.includes('--mcp')) {
-        console.log("Starting MCP Server...");
-        await runMcp(commandLibraries); // Await if runMcp is async
+        if (!isTestEnv) console.log("Starting MCP Server...");
+        await runMcp(commandLibraries);
     } else if (args.includes('--api')) {
-        console.log("Starting API Server...");
-        await runApi(commandLibraries); // Await if runApi is async
+        if (!isTestEnv) console.log("Starting API Server...");
+        await runApi(commandLibraries);
     } else if (args.includes('--json')) {
-        console.log("Starting CLI with JSON Argument...");
-        await runJson(commandLibraries); // Await if runJson is async
+        if (!isTestEnv) console.log("Starting CLI with JSON Argument...");
+        await runJson(commandLibraries);
     } else if (args.length === 0 || args.includes('--repl')) {
-        console.log("Starting Read Eval Print Loop...");
-        await runRepl(commandLibraries); // Await if runRepl is async
+        if (!isTestEnv) console.log("Starting Read Eval Print Loop...");
+        await runRepl(commandLibraries);
     } else { // Has Arguments and not --mcp, --api, or --json
-        console.log("Starting Command Line Interface...");
-        await runCli(commandLibraries); // Await runCli
+        if (!isTestEnv) console.log("Starting Command Line Interface...");
+        await runCli(commandLibraries);
     }
 })();
