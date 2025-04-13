@@ -6,6 +6,7 @@ import * as echoLib from './command-libraries/echo-lib';
 import * as helloLib from './command-libraries/hello-lib';
 import * as repopackLib from './command-libraries/repopack-lib';
 import * as inspectLib from './command-libraries/inspect-lib';
+import * as openrouterLib from './command-libraries/openrouter-lib';
 
 // Interface Libraries
 import { runCli } from './interface-libraries/cli-lib';
@@ -27,6 +28,7 @@ const commandLibraries: DefinedFunctionModule[] = [
     helloLib,
     repopackLib,
     inspectLib,
+    openrouterLib,
 ];
 
 // Simplified argument parsing (Removes node executable and script name)

@@ -40,50 +40,53 @@ export function DefineFunction<TArgs extends ZodTuple<any, any>, TReturn extends
 // --- DefineObjectFunction Helper (New for Objects) ---
 
 // Options specific to defining functions with an object arg schema
-interface DefineObjectFunctionOptions<TArgs extends ZodObject<any>> {
+interface DefineObjectFunctionOptions<TArgs extends ZodObject<any>, TReturn extends ZodTypeAny = z.ZodVoid> {
   description: string;
   argsSchema: TArgs;
-  positionalArgsOrder?: Extract<keyof z.infer<TArgs>, string>[]; // Optional explicit order
-  function: (args: z.infer<TArgs>) => Promise<void>; // Expect Promise<void>
+  returnSchema?: TReturn; // Optional return schema
+  positionalArgsOrder?: Extract<keyof z.infer<TArgs>, string>[];
+  // Update function signature to use TReturn, expect Promise<inferred TReturn>
+  function: (args: z.infer<TArgs>) => Promise<z.infer<TReturn>>;
 }
 
 // Represents the implemented function defined with an object schema
-// EXPORT this type
-export type DefinedObjectFunction<TArgs extends ZodObject<any>> =
-    ((args: z.infer<TArgs>) => Promise<void>) & {
-         _def: ZodFunction<ZodTuple<[TArgs], null>, z.ZodVoid>['_def'] & {
+// Update signature and internal _def structure
+export type DefinedObjectFunction<TArgs extends ZodObject<any>, TReturn extends ZodTypeAny = z.ZodVoid> =
+    ((args: z.infer<TArgs>) => Promise<z.infer<TReturn>>) & {
+         _def: { // Use a custom _def structure for clarity
+             args: ZodTuple<[TArgs], null>; // Keep args tuple for consistency
+             returnSchema?: TReturn; // Store the return schema here
+             typeName: ZodFirstPartyTypeKind.ZodFunction;
+             description?: string;
+             // Custom properties needed by interfaces
              argsSchema: TArgs;
-             positionalArgsOrder?: string[]; // Attach the order here as well
+             positionalArgsOrder?: string[];
          };
     };
 
-// Implementation of DefineObjectFunction (Simplified)
-export function DefineObjectFunction<TArgs extends ZodObject<any>>(
-  options: DefineObjectFunctionOptions<TArgs>
-): DefinedObjectFunction<TArgs> {
+// Implementation of DefineObjectFunction
+// Update signature and implementation details
+export function DefineObjectFunction<TArgs extends ZodObject<any>, TReturn extends ZodTypeAny = z.ZodVoid>(
+  options: DefineObjectFunctionOptions<TArgs, TReturn>
+): DefinedObjectFunction<TArgs, TReturn> {
 
-  // Manually create the function that will be exported/called
-  const callableFunction = async (args: z.infer<TArgs>): Promise<void> => {
+  // Update callableFunction signature to return Promise<inferred TReturn>
+  const callableFunction = async (args: z.infer<TArgs>): Promise<z.infer<TReturn>> => {
     // 1. Validate the input arguments using the provided schema
-    //    (Parsing will throw if invalid, which is expected)
     const validatedArgs = options.argsSchema.parse(args);
     // 2. Call the user's original function with the validated args
-    await options.function(validatedArgs);
-    // Return void (as per the function signature)
+    const result = await options.function(validatedArgs);
+    // Return the result
+    return result;
   };
 
-  // Manually construct the _def object needed by the CLI and potentially other interfaces
-  // We need to mimic the structure Zod creates, especially the 'args' part,
-  // but mark it clearly as object-based for our type guard.
-  const definition: DefinedObjectFunction<TArgs>['_def'] = {
-      // Mimic ZodFunctionDef properties (might need adjustment based on usage)
-      args: z.tuple([options.argsSchema]), // Keep tuple for structural consistency? Or just the object? Let's try tuple.
-      returns: z.void(), // Explicitly set to void
-      typeName: ZodFirstPartyTypeKind.ZodFunction, // Use the enum member
+  // Construct our custom _def object
+  const definition: DefinedObjectFunction<TArgs, TReturn>['_def'] = {
+      args: z.tuple([options.argsSchema]), // Keep tuple for structural consistency
+      returnSchema: options.returnSchema, // Store the provided return schema
+      typeName: ZodFirstPartyTypeKind.ZodFunction,
       description: options.description,
-      // Add our custom property to identify object-based functions easily
       argsSchema: options.argsSchema,
-      // Attach the optional positional order
       positionalArgsOrder: options.positionalArgsOrder
   };
 
@@ -91,27 +94,24 @@ export function DefineObjectFunction<TArgs extends ZodObject<any>>(
   (callableFunction as any)._def = definition;
 
   // Return the function cast to the correct type
-  return callableFunction as unknown as DefinedObjectFunction<TArgs>;
+  return callableFunction as unknown as DefinedObjectFunction<TArgs, TReturn>;
 }
 
 // Type alias for a module containing various defined functions
-// Update constraint to remove TReturn
+// Update to allow any return type for DefinedObjectFunction
 export type DefinedFunctionModule = Record<
   string,
-  DefinedFunction<any, any> | DefinedObjectFunction<any>
->; 
+  DefinedFunction<any, any> | DefinedObjectFunction<any, any>
+>;
 
 // Helper to check if a function was defined with DefineObjectFunction
-function isObjectFunction(func: any): func is DefinedObjectFunction<any> {
-    // More robust check: verify _def exists, _def.args is a ZodTuple,
-    // it has one item, and that item is a ZodObject.
-    // Also check for the custom argsSchema property we attach.
+// Check based on the custom _def structure
+export function isObjectFunction(func: any): func is DefinedObjectFunction<any, any> {
     return typeof func === 'function' &&
            func._def &&
-           func._def.args instanceof z.ZodTuple && 
-           func._def.args?._def?.items?.length === 1 && 
-           func._def.args?._def?.items?.[0] instanceof z.ZodObject && 
-           func._def.hasOwnProperty('argsSchema'); // Check our custom property still
+           func._def.typeName === ZodFirstPartyTypeKind.ZodFunction &&
+           func._def.args instanceof z.ZodTuple &&
+           func._def.argsSchema instanceof z.ZodObject;
 }
 
 // Helper to convert Zod schema type to yargs option type
