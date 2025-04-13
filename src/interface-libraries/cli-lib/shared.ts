@@ -54,7 +54,7 @@ function isObjectFunction(func: any): func is ZodFunction<any, any> & { _def: Zo
 }
 
 // Helper to check if a function is defined with DefineFunction (tuple args)
-function isDefinedFunction(func: any): func is DefinedFunction<any, any> {
+export function isDefinedFunction(func: any): func is DefinedFunction<any, any> {
      return typeof func === 'function' &&
             func._def &&
             func._def.args &&
