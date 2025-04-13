@@ -75,43 +75,116 @@ export const packRemote = DefineObjectFunction({
     try {
       tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'repopack-clone-'));
 
-      const cloneUrl = github_repo;
-      try {
-        execSync(`git clone --depth 1 ${cloneUrl} .`, { cwd: tempDir, stdio: 'pipe' });
-      } catch (cloneError: any) {
-        throw new Error(`Error cloning repository ${cloneUrl}: ${cloneError.message}`);
-      }
+      // --- Start URL Parsing ---
+      let baseCloneUrl: string;
+      let subDirectoryPath = '';
 
+      // Regex to capture base repo URL (group 1) and optional subdirectory path (group 3) after /tree/branch/
+      const urlRegex = /^(https?:\/\/github\.com\/[^\/]+\/[^\/]+)(?:\/tree\/[^\/]+\/(.*))?$/;
+      const match = github_repo.match(urlRegex);
+
+      if (match) {
+          baseCloneUrl = `${match[1]}.git`; // Append .git for cloning
+          if (match[2]) { // If group 2 exists (path part)
+              subDirectoryPath = match[2].replace(/\/$/, ''); // Get the path part and remove trailing slash if any
+          }
+      } else {
+          // Handle the case where the URL might be just the repo root without /tree/branch
+          const rootRepoRegex = /^(https?:\/\/github\.com\/[^\/]+\/[^\/]+)\/?$/;
+          const rootMatch = github_repo.match(rootRepoRegex);
+          if (rootMatch) {
+              baseCloneUrl = `${rootMatch[1]}.git`;
+              // subDirectoryPath remains ''
+          } else {
+            throw new Error(`Invalid GitHub URL format. Expected format like https://github.com/owner/repo or https://github.com/owner/repo/tree/branch/path. Got: ${github_repo}`);
+          }
+      }
+      // --- End URL Parsing ---
+
+
+      // --- Clone Base Repository ---
+      console.log(`[packRemote] Cloning base repository: ${baseCloneUrl}`);
+      try {
+        // Clone the base repository URL
+        execSync(`git clone --depth 1 ${baseCloneUrl} .`, { cwd: tempDir, stdio: 'pipe' });
+        console.log(`[packRemote] Successfully cloned into ${tempDir}`);
+      } catch (cloneError: any) {
+        // Ensure tempDir is cleaned up even if cloning fails
+        if (tempDir) {
+            try { await fsp.rm(tempDir, { recursive: true, force: true }); } catch (e) { /* ignore cleanup error */ }
+        }
+        throw new Error(`Error cloning base repository ${baseCloneUrl}: ${cloneError.message}`);
+      }
+      // --- End Clone Base Repository ---
+
+
+      // --- Determine and Validate Scan Directory ---
+      const scanDirectory = path.join(tempDir, subDirectoryPath);
+      console.log(`[packRemote] Target directory for packing: ${scanDirectory}`);
+
+      try {
+          const stats = await fsp.stat(scanDirectory);
+          if (!stats.isDirectory()) {
+              // This path exists but isn't a directory
+              throw new Error(`Specified path '${subDirectoryPath}' within the repository is not a directory.`);
+          }
+          console.log(`[packRemote] Validated target directory exists.`);
+      } catch (statError: any) {
+          if (statError.code === 'ENOENT') {
+               throw new Error(`Subdirectory not found in repository: '${subDirectoryPath}'. Please check the path and branch name in the URL: ${github_repo}`);
+          }
+          // Other stat errors (e.g., permission issues)
+          throw new Error(`Error accessing subdirectory '${subDirectoryPath}' in cloned repo: ${statError.message}`);
+      }
+      // --- End Determine and Validate Scan Directory ---
+
+
+      // --- Extract Repo Owner/Name ---
       let repoOwner: string | undefined;
       let repoName: string | undefined;
-      const repoUrlMatch = github_repo.match(/(?:https:\/\/github\.com\/|git@github\.com:)([^\/]+)\/([^\/]+?)(\.git)?$/i);
+      // Use baseCloneUrl to reliably get owner/name
+      const repoUrlMatch = baseCloneUrl.match(/(?:https:\/\/github\.com\/|git@github\.com:)([^\/]+)\/([^\/]+?)(\.git)?$/i);
       if (repoUrlMatch && repoUrlMatch.length >= 3) {
         repoOwner = repoUrlMatch[1];
         repoName = repoUrlMatch[2];
       }
+      // --- End Extract Repo Owner/Name ---
 
+
+      // --- Prepare Options for packInternal ---
       const options: PackCodebaseOptions = {
-        directory: tempDir,
-        outputTargetDirectory: originalOutputDirectoryNormalized,
-        sourceIdentifier: github_repo,
-        github_repo: github_repo,
-        ...restOptions,
+        ...restOptions, // Pass through include/exclude patterns, formatting options etc.
+        directory: scanDirectory, // <<< Critical change: Pack the specific subdirectory
+        outputTargetDirectory: originalOutputDirectoryNormalized, // Where the final output file should go
+        sourceIdentifier: github_repo, // Use the original full URL in the output summary
+        github_repo: github_repo,      // Keep original URL info if needed later
         repoOwner,
         repoName,
       };
+      // --- End Prepare Options for packInternal ---
 
+
+      console.log(`[packRemote] Calling packInternal for directory: ${options.directory}`);
       await packInternal(options);
+      console.log(`[packRemote] Successfully returned from packInternal.`);
 
     } catch (error: any) {
+       // Ensure the specific error is propagated
+      console.error(`[packRemote] Error during operation: ${error.message}`, error.stack);
       throw new Error(`Error packing remote repository '${github_repo}': ${error.message}`);
     } finally {
+      // --- Cleanup Temporary Directory ---
       if (tempDir) {
+        console.log(`[packRemote] Cleaning up temporary directory: ${tempDir}`);
         try {
           await fsp.rm(tempDir, { recursive: true, force: true });
+          console.log(`[packRemote] Successfully removed temporary directory.`);
         } catch (cleanupError: any) {
+          // Log cleanup errors but don't let them mask the primary error
           console.error(`[packRemote] Warning: Error removing temporary directory ${tempDir}: ${cleanupError.message}`);
         }
       }
+      // --- End Cleanup Temporary Directory ---
     }
   },
 }); 
