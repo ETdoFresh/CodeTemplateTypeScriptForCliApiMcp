@@ -170,7 +170,18 @@ export function executeParsedCommands(
                         // 2. Check for unexpected positional arguments
                         // DefineObjectFunction expects only named flags
                         if (parsedArgs._ && parsedArgs._.length > 0) {
-                            throw new Error(`Command '${funcDescription}' expects named arguments (e.g., --key value), but received positional arguments: ${parsedArgs._.join(' ')}`);
+                            const schemaKeys = Object.keys(objectSchema.shape);
+                            // Identify required properties (those without .isOptional())
+                            const requiredKeys = schemaKeys.filter(
+                                key => !objectSchema.shape[key].isOptional?.()
+                            );
+                            if (requiredKeys.length === 1 && parsedArgs._.length === 1) {
+                                // Map the single positional argument to the required property
+                                parsedArgs[requiredKeys[0]] = parsedArgs._[0];
+                                parsedArgs._ = [];
+                            } else {
+                                throw new Error(`Command '${funcDescription}' expects named arguments (e.g., --key value), but received positional arguments: ${parsedArgs._.join(' ')}`);
+                            }
                         }
 
                         // 3. Prepare args for Zod validation (exclude yargs-parser specific fields)
@@ -269,8 +280,12 @@ export function executeParsedCommands(
                         if (returnsPromise) {
                             console.warn(`[${funcDescription}] Warning: Command is async, but CLI execution is currently synchronous. Result might be a Promise object.`);
                         }
-                        // Call the function directly
-                        executionResult = (definedFunc as Function)(...finalCallArgs); // Assert as Function to bypass TS error
+                        // Call the raw implementation function directly with coerced args
+                        // This bypasses the DefineFunction wrapper's own validation, which seems to be causing issues.
+                        if (!definedFunc._def || typeof definedFunc._def.function !== 'function') {
+                           throw new Error(`Internal error: Could not find the implementation function for command '${funcDescription}'.`);
+                        }
+                        executionResult = definedFunc._def.function(...finalCallArgs);
 
                     } else {
                         console.error(`DEBUG: [${commandName}] Entering INVALID function type path`); // DEBUG LOG

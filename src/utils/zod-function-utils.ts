@@ -33,6 +33,8 @@ export function DefineFunction<TArgs extends ZodTuple<any, any>, TReturn extends
   const implementedFunc = definition.implement(options.function as any);
   
   (implementedFunc as any)._def = definition._def;
+  // Attach the implementation function for downstream consumers (REPL/CLI)
+  (implementedFunc as any)._def.function = implementedFunc;
 
   return implementedFunc as unknown as DefinedFunction<TArgs, TReturn>;
 }
@@ -106,7 +108,7 @@ export type DefinedFunctionModule = Record<
 
 // Helper to check if a function was defined with DefineObjectFunction
 // Check based on the custom _def structure
-export function isObjectFunction(func: any): func is DefinedObjectFunction<any, any> {
+function isObjectFunction(func: any): func is DefinedObjectFunction<any, any> {
     return typeof func === 'function' &&
            func._def &&
            func._def.typeName === ZodFirstPartyTypeKind.ZodFunction &&

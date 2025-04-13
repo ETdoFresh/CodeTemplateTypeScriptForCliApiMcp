@@ -4,13 +4,12 @@
   "description": "Calculator Test with MCP Server",
   "license": "ISC",
   "author": "",
-  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "code-template-ts": "./dist/index.js"
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=node --format=esm --target=node20 --sourcemap --external:child_process --external:clipboardy --external:globby",
+    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --platform=node --format=cjs --target=node20 --sourcemap --external:child_process --external:clipboardy --external:globby --external:fs",
     "start": "node dist/index.js",
     "pretest": "npm run build",
     "test": "vitest run",

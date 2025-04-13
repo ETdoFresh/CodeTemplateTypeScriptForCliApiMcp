@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+
 // Command Libraries
 import * as calculatorLib from './command-libraries/calculator-lib';
 import * as echoLib from './command-libraries/echo-lib';
@@ -17,9 +18,14 @@ import { runJson } from './interface-libraries/cli-json-lib';
 
 // Process
 import process from 'process';
+import fs from 'fs';
+import dotenv from 'dotenv';
 
 // Utils
 import { DefinedFunctionModule } from './utils/zod-function-utils';
+
+// Load Environment Variables
+dotenv.config();
 
 // Load Command Libraries
 const commandLibraries: DefinedFunctionModule[] = [

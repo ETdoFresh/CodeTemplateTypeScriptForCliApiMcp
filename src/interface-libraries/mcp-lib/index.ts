@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodError, ZodObject } from 'zod';
-import { DefinedFunctionModule, DefinedFunction, DefinedObjectFunction, isObjectFunction } from '../../utils/zod-function-utils.js';
+import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodError } from 'zod';
+import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js';
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
@@ -59,125 +59,96 @@ export function runMcp(libraries: DefinedFunctionModule[]) {
         const definedFunc = func; // Type is now DefinedFunction
         const zodDef = definedFunc._def; // Access the Zod definition
 
-        let mcpInputSchema: ZodObject<any>;
-        let description: string;
+        // Get Zod schema directly from the definition
+        // We expect the arguments to be a ZodTuple
+        if (!(zodDef.args instanceof ZodTuple)) {
+             // Safer access to constructor name
+             const argTypeName = zodDef.args ? Object.getPrototypeOf(zodDef.args)?.constructor?.name : 'undefined';
+             console.error(`[${funcName}] Error: Expected ZodTuple for args in _def, but got ${argTypeName}. Skipping tool registration.`);
+             continue;
+        }
+        const argTupleSchema = zodDef.args as ZodTuple<any, any>;
+
+        // --- Build the Input Object Schema for MCP from the ZodTuple --- 
+        const inputShape: Record<string, ZodTypeAny> = {};
         let argNames: string[] = [];
         let restArgName: string | undefined;
 
-        // Build MCP schema and handler based on function type
-        if (isObjectFunction(definedFunc)) {
-            // Explicitly cast zodDef after the type guard
-            const objectDef = zodDef as DefinedObjectFunction<any, any>['_def'];
-            // For DefineObjectFunction, use its argsSchema directly
-            mcpInputSchema = objectDef.argsSchema;
-            description = objectDef.description || `Dynamically registered tool for ${funcName}`;
-            // No need to map arg names for object functions
-        } else {
-            // --- Original logic for DefineFunction (Tuple Args) --- 
-            // Type assertion needed here too for safety, even though it's the 'else' path
-            const standardDef = zodDef as ZodFunction<any, any>['_def'];
-            if (!(standardDef.args instanceof ZodTuple)) {
-                 const argTypeName = standardDef.args ? Object.getPrototypeOf(standardDef.args)?.constructor?.name : 'undefined';
-                 console.error(`[${funcName}] Error: Expected ZodTuple for args in standard _def, but got ${argTypeName}. Skipping tool registration.`);
-                 continue;
+        // Process fixed tuple arguments
+        argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
+            const name = itemSchema.description || `arg${index}`;
+            if (inputShape[name]) {
+                console.warn(`[${zodDef.description || funcName}] Duplicate argument name/description '${name}'. Overwriting.`);
             }
-            const argTupleSchema = standardDef.args as ZodTuple<any, any>;
-            const inputShape: Record<string, ZodTypeAny> = {};
-            
-            // Process fixed tuple arguments
-            argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
-                const name = itemSchema.description || `arg${index}`;
-                if (inputShape[name]) {
-                    console.warn(`[${zodDef.description || funcName}] Duplicate argument name/description '${name}'. Overwriting.`);
-                }
-                inputShape[name] = itemSchema;
-                argNames.push(name);
-            });
-            
-            // Process rest argument
-            if (argTupleSchema._def.rest) {
-                const restSchema = argTupleSchema._def.rest as ZodTypeAny;
-                restArgName = restSchema.description || 'restArgs';
-                if (inputShape[restArgName]) {
-                    console.warn(`[${zodDef.description || funcName}] Duplicate name/description '${restArgName}' for rest parameter. Overwriting.`);
-                }
-                let mcpRestType = z.array(restSchema).optional();
-                if(restSchema.description) {
-                    mcpRestType = mcpRestType.describe(restSchema.description);
-                }
-                inputShape[restArgName] = mcpRestType;
-            }
-            mcpInputSchema = z.object(inputShape);
-            description = zodDef.description || `Dynamically registered tool for ${funcName}`;
-            // --- End Original Logic --- 
-        }
+             // Zod types are directly usable in MCP schema shape
+            inputShape[name] = itemSchema;
+            argNames.push(name);
+        });
 
-        // Create the MCP handler
+        // Process rest argument
+        if (argTupleSchema._def.rest) {
+            const restSchema = argTupleSchema._def.rest as ZodTypeAny;
+            restArgName = restSchema.description || 'restArgs';
+            if (inputShape[restArgName]) {
+                console.warn(`[${zodDef.description || funcName}] Duplicate name/description '${restArgName}' for rest parameter. Overwriting.`);
+            }
+             // MCP expects rest args as an optional array in the input object
+            let mcpRestType = z.array(restSchema).optional();
+            if(restSchema.description) {
+                mcpRestType = mcpRestType.describe(restSchema.description);
+            }
+            inputShape[restArgName] = mcpRestType;
+        }
+        const mcpInputSchema = z.object(inputShape);
+
+        // Create the MCP handler using the Zod definition for validation
         const mcpHandler = async (inputArgs: unknown): Promise<CallToolResult> => {
             try {
                 // 1. Validate input against the derived MCP input schema
                 const parsedInput = mcpInputSchema.parse(inputArgs);
+                const finalCallArgs: any[] = [];
 
-                let result: any;
-                // Check function type again to decide how to call it
-                if (isObjectFunction(definedFunc)) {
-                    // DefineObjectFunction expects a single object arg and always returns a Promise
-                    result = await definedFunc(parsedInput);
+                // 2. Map parsed object args back to tuple/spread format for the original function
+                argNames.forEach(name => {
+                    // Handle potential undefined if schema part was optional and not provided
+                    finalCallArgs.push(parsedInput[name]);
+                });
+                if (restArgName && parsedInput[restArgName]) {
+                    finalCallArgs.push(...(parsedInput[restArgName] as any[]));
+                }
+
+                // 3. Execute the original function (which is definedFunc)
+                // Use await if the original function might be async (check zodDef.returns?)
+                let result;
+                if (zodDef.returns instanceof z.ZodPromise) {
+                    result = await definedFunc(...finalCallArgs);
                 } else {
-                    // Original DefineFunction: map object back to tuple args
-                    const finalCallArgs: any[] = [];
-                    argNames.forEach(name => {
-                        finalCallArgs.push(parsedInput[name]);
-                    });
-                    if (restArgName && parsedInput[restArgName]) {
-                        finalCallArgs.push(...(parsedInput[restArgName] as any[]));
-                    }
-                    
-                    // Check original DefineFunction return type for await
-                    // Explicit cast needed again for safety
-                    const standardDef = definedFunc._def as ZodFunction<any, any>['_def']; 
-                    if (standardDef.returns instanceof z.ZodPromise) {
-                        result = await definedFunc.apply(null, finalCallArgs);
-                    } else {
-                        result = definedFunc.apply(null, finalCallArgs);
-                    }
+                    result = definedFunc(...finalCallArgs);
                 }
 
                 // 4. Format and return result
-                let resultString: string;
-                // Use the correct def based on function type
-                if (isObjectFunction(definedFunc)) {
-                    const objectDef = definedFunc._def as DefinedObjectFunction<any, any>['_def'];
-                    if (objectDef.returnSchema && objectDef.returnSchema instanceof z.ZodString) {
-                        resultString = result; // Already a string if returnSchema is z.string()
-                    } else {
-                        resultString = typeof result === 'string' ? result : JSON.stringify(result);
-                    }
-                } else {
-                    resultString = typeof result === 'string' ? result : JSON.stringify(result);
-                }
-                
+                const resultString = typeof result === 'string' ? result : JSON.stringify(result);
                 return {
                     content: [{ type: "text", text: resultString }],
                 };
             } catch (error: any) {
                 // Handle errors during parsing or execution
-                // Use the correct def structure to get description
-                const errorDesc = isObjectFunction(definedFunc) 
-                    ? (definedFunc._def as DefinedObjectFunction<any, any>['_def']).description || funcName
-                    : (definedFunc._def as ZodFunction<any, any>['_def']).description || funcName;
                 const errorMsg = error instanceof ZodError
+                    // Explicitly type 'e' in map callback
                     ? `Invalid input: ${error.errors.map((e: z.ZodIssue) => `'${e.path.join('.')}' ${e.message}`).join(', ')}`
                     : error.message;
                 return {
-                    content: [{ type: "text", text: `Error in ${errorDesc}: ${errorMsg}` }],
+                    content: [{ type: "text", text: `Error in ${zodDef.description || funcName}: ${errorMsg}` }],
                     isError: true,
                 };
             }
         };
 
+        // Use description from Zod definition
+        const description = zodDef.description || `Dynamically registered tool for ${funcName}`;
+
         // Register the tool using the derived schema and handler
-        server.tool(funcName, description, mcpInputSchema.shape, mcpHandler); // Pass schema.shape
+        server.tool(funcName, description, inputShape, mcpHandler);
         registeredToolNames.push(funcName); // Add name to our list
         console.error(`  - Registered tool: ${funcName} (${description})`);
       }
