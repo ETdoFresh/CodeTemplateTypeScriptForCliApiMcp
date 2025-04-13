@@ -31,7 +31,7 @@ function parseStringsToNumbers(args: string[]): number[] {
 // --- Server Setup and Dynamic Registration --- 
 
 // Make runMcp accept the updated library type and export it
-export async function runMcp(libraries: DefinedFunctionModule[]) {
+export function runMcp(libraries: DefinedFunctionModule[]) {
 
   const server = new McpServer({
     name: "mcp-dynamic-lib-server",
@@ -159,7 +159,7 @@ export async function runMcp(libraries: DefinedFunctionModule[]) {
 
   // --- Start Server --- 
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  server.connect(transport).then(r => { });
   // Log the list of registered tool names we collected
   console.error(`MCP Dynamic Lib Server running on stdio, exposing tools: ${registeredToolNames.join(', ')}`);
 }
