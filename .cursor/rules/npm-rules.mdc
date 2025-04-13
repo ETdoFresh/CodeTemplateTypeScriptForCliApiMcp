@@ -1,0 +1,10 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# NPM Rules
+
+## Run Build and Start on Task Completion
+
+This rule automatically runs `npm run build; npm run start ...` whenever a task is completed in Cursor.
