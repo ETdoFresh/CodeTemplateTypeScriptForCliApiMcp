@@ -1,39 +1,41 @@
 // src/command-libraries/repopack-lib/index.ts
 
-import { z } from 'zod';
+// import { z } from 'zod'; // No longer needed for definition
 import * as path from 'path';
 import * as os from 'os';
 import * as fsp from 'fs/promises';
 import { execSync } from 'child_process';
-import { DefineObjectFunction } from '../../utils/zod-function-utils.js';
-import { PackCodebaseOptions } from './types.js';
+// import { DefineObjectFunction } from '../../utils/zod-function-utils.js'; // Replaced
+import { FunctionDefinition, ArgumentDefinition } from '../../system/command-types.js'; // New import
+import { PackCodebaseOptions } from './types.js'; // Keep if needed internally by functions
 import { packInternal } from './packInternal.js';
 import { normalizePathUri } from './filesystem.js';
 
-// Define Zod Schema for parameters using z.object()
-const PackCodebaseArgsSchema = z.object({
-  directory: z.string().describe('Absolute path to the code directory to pack.'),
-  github_repo: z.string().optional().describe('URL of the GitHub repository to clone.'),
-  includePatterns: z.string().optional().describe('Comma-separated glob patterns for files to include.'),
-  ignorePatterns: z.string().optional().describe('Comma-separated glob patterns for files/directories to ignore.'),
-  outputFormat: z.enum(['xml', 'md', 'txt']).optional().default('xml').describe('Output format: xml, md, or txt.'),
-  outputTarget: z.enum(['stdout', 'file', 'clipboard']).optional().default('stdout').describe('Output destination: stdout, file, or clipboard.'),
-  outputDirectory: z.string().optional().default('.').describe('Directory to write the output file to (defaults to current directory).'), // Added outputDirectory
-  removeComments: z.boolean().optional().default(false).describe('Remove comments from code files.'),
-  removeEmptyLines: z.boolean().optional().default(false).describe('Remove empty lines from files.'),
-  fileSummary: z.boolean().optional().default(true).describe('Include a summary section in the output.'),
-  directoryStructure: z.boolean().optional().default(true).describe('Include a directory structure section.'),
-  noGitignore: z.boolean().optional().default(false).describe('Disable the use of .gitignore files.'),
-  noDefaultPatterns: z.boolean().optional().default(false).describe('Disable default ignore patterns.'),
-});
+// Zod schema removed - arguments are now defined in FunctionDefinition
 
 /**
  * Packages a local code directory.
  */
-export const packLocal = DefineObjectFunction({
+export const packLocal: FunctionDefinition = {
+  name: 'packLocal',
   description: 'Packages a local code directory into a consolidated text format.',
-  argsSchema: PackCodebaseArgsSchema.omit({ github_repo: true }),
-  function: async (optionsInput) => {
+  arguments: [
+    { name: 'directory', type: 'string', description: 'Absolute path to the code directory to pack.' },
+    { name: 'includePatterns', type: 'string', description: 'Comma-separated glob patterns for files to include.', optional: true },
+    { name: 'ignorePatterns', type: 'string', description: 'Comma-separated glob patterns for files/directories to ignore.', optional: true },
+    { name: 'outputFormat', type: 'string', description: 'Output format: xml, md, or txt.', optional: true, defaultValue: 'xml' },
+    { name: 'outputTarget', type: 'string', description: 'Output destination: stdout, file, or clipboard.', optional: true, defaultValue: 'stdout' },
+    { name: 'outputDirectory', type: 'string', description: 'Directory to write the output file to (defaults to current directory).', optional: true, defaultValue: '.' },
+    { name: 'removeComments', type: 'boolean', description: 'Remove comments from code files.', optional: true, defaultValue: false },
+    { name: 'removeEmptyLines', type: 'boolean', description: 'Remove empty lines from files.', optional: true, defaultValue: false },
+    { name: 'fileSummary', type: 'boolean', description: 'Include a summary section in the output.', optional: true, defaultValue: true },
+    { name: 'directoryStructure', type: 'boolean', description: 'Include a directory structure section.', optional: true, defaultValue: true },
+    { name: 'noGitignore', type: 'boolean', description: 'Disable the use of .gitignore files.', optional: true, defaultValue: false },
+    { name: 'noDefaultPatterns', type: 'boolean', description: 'Disable default ignore patterns.', optional: true, defaultValue: false },
+  ],
+  restArgument: undefined,
+  returnType: { name: 'status', type: 'string', description: 'Indicates completion status (Promise resolves on success)', optional: true },
+  function: async (optionsInput: any) => { // Keep original implementation
     // Destructure outputDirectory along with other options
     const { directory, outputDirectory, ...restOptions } = optionsInput;
     try {
@@ -57,22 +59,46 @@ export const packLocal = DefineObjectFunction({
       throw new Error(`Error packing local directory '${directory}': ${error.message}`);
     }
   },
-});
+};
 
 /**
  * Clones a remote GitHub repository and packages it.
  */
-export const packRemote = DefineObjectFunction({
+export const packRemote: FunctionDefinition = {
+  name: 'packRemote',
   description: 'Clones a remote GitHub repository and packages it.',
-  argsSchema: PackCodebaseArgsSchema.extend({
-      github_repo: z.string().describe('URL of the GitHub repository to clone (required).')
-  }),
-  positionalArgsOrder: ['github_repo', 'directory'],
-  function: async (optionsInput) => {
-    const { github_repo, directory, ...restOptions } = optionsInput;
+  arguments: [
+    // Note: 'directory' from the original schema is used as the output directory path in the function logic.
+    // We keep it in the arguments list as it was part of the original schema definition.
+    // The 'outputDirectory' argument provides an alternative way to specify the output path.
+    { name: 'directory', type: 'string', description: 'Absolute path for the output directory (used if outputDirectory is not specified).' },
+    { name: 'github_repo', type: 'string', description: 'URL of the GitHub repository to clone (required).' }, // Required
+    { name: 'includePatterns', type: 'string', description: 'Comma-separated glob patterns for files to include.', optional: true },
+    { name: 'ignorePatterns', type: 'string', description: 'Comma-separated glob patterns for files/directories to ignore.', optional: true },
+    { name: 'outputFormat', type: 'string', description: 'Output format: xml, md, or txt.', optional: true, defaultValue: 'xml' },
+    { name: 'outputTarget', type: 'string', description: 'Output destination: stdout, file, or clipboard.', optional: true, defaultValue: 'stdout' },
+    { name: 'outputDirectory', type: 'string', description: 'Explicit directory to write the output file to (overrides \'directory\' argument, defaults to current directory).', optional: true, defaultValue: '.' },
+    { name: 'removeComments', type: 'boolean', description: 'Remove comments from code files.', optional: true, defaultValue: false },
+    { name: 'removeEmptyLines', type: 'boolean', description: 'Remove empty lines from files.', optional: true, defaultValue: false },
+    { name: 'fileSummary', type: 'boolean', description: 'Include a summary section in the output.', optional: true, defaultValue: true },
+    { name: 'directoryStructure', type: 'boolean', description: 'Include a directory structure section.', optional: true, defaultValue: true },
+    { name: 'noGitignore', type: 'boolean', description: 'Disable the use of .gitignore files.', optional: true, defaultValue: false },
+    { name: 'noDefaultPatterns', type: 'boolean', description: 'Disable default ignore patterns.', optional: true, defaultValue: false },
+  ],
+  restArgument: undefined,
+  returnType: { name: 'status', type: 'string', description: 'Indicates completion status (Promise resolves on success)', optional: true },
+  function: async (optionsInput: any) => { // Keep original implementation
+    // Adjusted destructuring to handle both 'directory' and 'outputDirectory'
+    const { github_repo, directory, outputDirectory: explicitOutputDirectory, ...restOptions } = optionsInput;
 
     let tempDir: string | undefined;
-    const originalOutputDirectoryNormalized = normalizePathUri(directory);
+    // Determine the final output directory: use explicitOutputDirectory if provided, otherwise fall back to the 'directory' argument.
+    const targetOutputDirectory = explicitOutputDirectory || directory;
+    if (!targetOutputDirectory) {
+        throw new Error("Output directory must be specified via 'directory' or 'outputDirectory' argument.");
+    }
+    const originalOutputDirectoryNormalized = normalizePathUri(targetOutputDirectory);
+
 
     try {
       tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'repopack-clone-'));
@@ -189,4 +215,4 @@ export const packRemote = DefineObjectFunction({
       // --- End Cleanup Temporary Directory ---
     }
   },
-}); 
+};

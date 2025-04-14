@@ -1,25 +1,35 @@
 import readline from 'readline';
-import { ZodFunction } from 'zod';
-import { DefinedFunctionModule } from '../../utils/zod-function-utils.js'; // Import new type
+// Removed: import { ZodFunction } from 'zod';
+// Removed: import { DefinedFunctionModule } from '../../utils/zod-function-utils.js';
+// Removed: import { processArgs, executeParsedCommands } from '../cli-lib/shared.js';
 
-import {
-    processArgs,
-    executeParsedCommands,
-} from '../cli-lib/shared.js'; // Adjust path and add .js extension
+// Added new imports
+import { parseCommandString } from '../../system/command-parser/string-parser.js';
+import { parseFunctionArguments } from '../../system/command-parser/function-parser.js';
+import { convertArgumentInstances, ConversionError, ConvertedArgumentValue } from '../../system/command-parser/argument-converter.js'; // Added ConversionError, ConvertedArgumentValue
+import { validateArguments } from '../../system/command-parser/argument-validator.js';
+import { FunctionDefinition, ArgumentInstance, RestArgumentInstance, ArgumentDefinition } from '../../system/command-types.js'; // Added ArgumentDefinition
 
-export const runRepl = (libraries: DefinedFunctionModule[]) => {
+// Updated type for libraries
+export const runRepl = (libraries: FunctionDefinition[]) => {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: '> '
   });
 
-  // Combine all available commands just for the help message
-  const availableCommandNames = libraries.flatMap(lib => Object.keys(lib));
+  // Updated help message generation
+  const availableCommands = libraries.map(lib => ({
+      name: lib.name,
+      description: lib.description || 'No description available.'
+  }));
 
-  console.log('Interactive CLI. Type "exit" or "quit" to leave.');
-  console.log('Available commands:', availableCommandNames.join(', '));
-  console.log('Note: Commands expecting options (like packLocal) use named flags, e.g., packLocal --directory /path --outputTarget file');
+  console.log('Interactive REPL. Type "exit" or "quit" to leave.');
+  console.log('Available commands:');
+  availableCommands.forEach(cmd => {
+      console.log(`  ${cmd.name}: ${cmd.description}`);
+  });
+  // Removed old note about named flags as parsing handles it differently now.
   rl.prompt();
 
   rl.on('line', async (line) => {
@@ -35,41 +45,110 @@ export const runRepl = (libraries: DefinedFunctionModule[]) => {
     }
 
     try {
-        // Use processArgs to parse the single line of input
-        const commandsToExecute = processArgs([trimmedLine]);
+        // --- New Parsing Pipeline ---
 
-        if (commandsToExecute.length === 0 && trimmedLine) {
-             console.error("Error: Invalid command input format.");
-        } else if (commandsToExecute.length > 0) {
-            // Execute the parsed commands
-            const executionResults = executeParsedCommands(commandsToExecute, libraries);
+        // 1. Parse the raw string
+        const parsedStringResult = parseCommandString(trimmedLine);
+        // No error check here, parseCommandString just structures the input
+        const { positionalArgs, namedArgs } = parsedStringResult;
 
-            // Print results or errors for each command executed, handling Promises
-            for (const res of executionResults) {
-                if (res.error) {
-                    console.error(`Error executing command '${res.command.commandName}':`, res.error.message);
-                } else {
-                    if (res.result !== undefined) {
-                        if (typeof res.result?.then === 'function') {
-                            // It's a Promise, await it
-                            try {
-                                const awaited = await res.result;
-                                if (awaited !== undefined) {
-                                    console.log(awaited);
-                                }
-                            } catch (err) {
-                                console.error(`Error (async) in command '${res.command.commandName}':`, err?.message || err);
-                            }
-                        } else {
-                            // Not a Promise, print directly
-                            console.log(res.result);
-                        }
-                    }
+        if (positionalArgs.length === 0) {
+            console.error("Error: Please enter a command.");
+            rl.prompt();
+            return;
+        }
+
+        // 2. Find Command Definition
+        const commandName = positionalArgs[0];
+        const funcDef = libraries.find(lib => lib.name === commandName);
+
+        if (!funcDef) {
+            console.error(`Error: Command "${commandName}" not found.`);
+            rl.prompt();
+            return;
+        }
+
+        // Prepare args for function parser (remove command name)
+        const commandPositionalArgs = positionalArgs.slice(1);
+        const argsForFuncParser = { positionalArgs: commandPositionalArgs, namedArgs };
+
+        // 3. Parse Function Arguments (match raw args to definition)
+        const parsedFuncArgsResult = parseFunctionArguments(argsForFuncParser, funcDef);
+        if (parsedFuncArgsResult.errors.length > 0) {
+            parsedFuncArgsResult.errors.forEach((err: string) => console.error(`Argument Parsing Error: ${err}`));
+            rl.prompt();
+            return;
+        }
+
+        // Prepare for conversion and validation: Create a map of arg definitions
+        const argDefsMap = new Map<string, ArgumentDefinition>();
+        funcDef.arguments.forEach(def => argDefsMap.set(def.name, def));
+        if (funcDef.restArgument) {
+            argDefsMap.set(funcDef.restArgument.name, funcDef.restArgument); // Add rest arg def too if it exists
+        }
+
+
+        // 4. Convert Argument Instances (string -> actual type)
+        const conversionResult = convertArgumentInstances(
+            parsedFuncArgsResult.argumentInstances,
+            parsedFuncArgsResult.restArgumentInstance,
+            argDefsMap, // Pass the map
+            funcDef.restArgument || null // Pass the rest definition or null
+        );
+        if (conversionResult.errors.length > 0) {
+            conversionResult.errors.forEach((err: ConversionError) => console.error(`Argument Conversion Error (${err.argumentName}): ${err.message}`));
+            rl.prompt();
+            return;
+        }
+
+        // 5. Validate Arguments (check required args are present)
+        const validationErrors = validateArguments(argDefsMap, conversionResult.convertedArguments);
+        if (validationErrors.length > 0) {
+            validationErrors.forEach((err: string) => console.error(`Argument Validation Error: ${err}`));
+            rl.prompt();
+            return;
+        }
+
+        // 6. Prepare Arguments for Execution (in correct order)
+        const finalArgs: any[] = [];
+        // Process regular arguments in defined order
+        for (const argDef of funcDef.arguments) {
+            let value = conversionResult.convertedArguments[argDef.name];
+            if (value === undefined && argDef.defaultValue !== undefined) {
+                value = argDef.defaultValue; // Use default value if not provided
+            }
+            finalArgs.push(value);
+        }
+        // Process rest argument if defined
+        if (funcDef.restArgument) {
+            const restValue = conversionResult.convertedArguments[funcDef.restArgument.name];
+            if (Array.isArray(restValue)) {
+                finalArgs.push(...restValue); // Spread the rest arguments
+            }
+            // If restValue is undefined/null but expected, it means no rest args were provided, which is fine.
+            // If it's not an array, conversion should have caught it.
+        }
+
+
+        // 7. Execute Command
+        try {
+            // console.log(`Executing ${commandName} with args:`, finalArgs); // Optional debug log
+            const result = await funcDef.function(...finalArgs);
+            if (result !== undefined) {
+                // Avoid printing null explicitly, treat it like undefined
+                if (result !== null) {
+                     console.log(result);
                 }
             }
+        } catch (executionError: any) {
+            console.error(`Execution Error in command '${commandName}':`, executionError?.message || executionError);
         }
+
+        // --- End New Parsing Pipeline ---
+
     } catch (error: any) {
-         console.error("Error processing input:", error.message);
+         // Catch unexpected errors during the pipeline setup itself
+         console.error("Internal REPL Error:", error.message);
     }
 
     rl.prompt();

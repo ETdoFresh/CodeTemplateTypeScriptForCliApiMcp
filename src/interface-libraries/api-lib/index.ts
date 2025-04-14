@@ -1,10 +1,21 @@
 import http from 'http';
 import url from 'url';
 import type { IncomingMessage, ServerResponse } from 'http';
-// Import Zod and necessary types
-import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodObject, ZodError } from 'zod';
-// Update import path to point to zod-function-utils
-import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js';
+// REMOVE: Zod imports
+// import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodObject, ZodError } from 'zod';
+// import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js';
+
+// ADD: New system imports
+import { convertArgumentInstances } from '../../system/command-parser/argument-converter.js';
+import { validateArguments } from '../../system/command-parser/argument-validator.js';
+import type {
+    FunctionDefinition,
+    ArgumentDefinition,
+    ArgumentInstance,
+    RestArgumentInstance,
+    RestArgumentDefinition // Added for clarity
+    // ConversionResult and ValidationResult types are inferred from function returns
+} from '../../system/command-types.js';
 
 // Helper to check if a property exists on an object (local copy)
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
@@ -12,71 +23,14 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-// Helper to create the Zod object schema for API input (handles coercion for query params)
-function buildApiInputSchema(definedFunc: DefinedFunction<any, any>, coerceQueryStrings: boolean): {
-    schema: ZodObject<any, any, any, any, any>;
-    argNames: string[];
-    restArgName?: string;
-} {
-    // Access the definition attached by DefineFunction
-    const zodDef = definedFunc._def;
-    const argTupleSchema = zodDef.args as ZodTuple<any, any>;
-    let shape: Record<string, ZodTypeAny> = {};
-    let argNames: string[] = [];
-    let restArgName: string | undefined;
-
-    const coerceIfNeeded = (schema: ZodTypeAny): ZodTypeAny => {
-        if (!coerceQueryStrings) return schema;
-        // Apply coercion for primitive types expected from query strings
-        if (schema instanceof z.ZodNumber) return z.coerce.number({
-            invalid_type_error: `Expected number, received string for query parameter`
-        });
-        if (schema instanceof z.ZodBoolean) return z.coerce.boolean({
-            invalid_type_error: `Expected boolean, received string for query parameter`
-        });
-        // Coercion for arrays needs careful handling as query params can be string or string[]
-        // We handle array normalization *before* parsing, so direct coercion isn't applied here.
-        return schema; // Return original for strings, arrays, objects etc.
-    };
-
-    // Process fixed tuple arguments
-    argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
-        const name = itemSchema.description || `arg${index}`;
-        if (shape[name]) {
-            console.warn(`[API:${zodDef.description || 'unknown'}] Duplicate argument name/description '${name}'.`);
-            return;
-        }
-        shape[name] = coerceIfNeeded(itemSchema);
-        argNames.push(name);
-    });
-
-    // Process rest argument
-    if (argTupleSchema._def.rest) {
-        const restSchema = argTupleSchema._def.rest as ZodTypeAny;
-        restArgName = restSchema.description || 'restArgs';
-        if (shape[restArgName]) {
-             console.warn(`[API:${zodDef.description || 'unknown'}] Duplicate name/description '${restArgName}' for rest parameter.`);
-        } else {
-             // API expects rest args as an optional array in the input object
-             // Coercion for the *elements* needs to be handled during pre-processing for query params
-             let arrayType = z.array(restSchema);
-             // We don't coerce the array elements here; pre-processing handles query strings.
-             // Zod handles JSON arrays naturally.
-            shape[restArgName] = arrayType.optional().describe(restSchema.description || `Variable number of ${restArgName}`);
-        }
-    }
-
-    // Use passthrough to allow extra query parameters maybe? Or catchall? Let's stick to strict for now.
-    return { schema: z.object(shape), argNames, restArgName };
-}
+// REMOVE: buildApiInputSchema function (lines 15-71)
 
 
 // Define the main request handler function separately
 async function handleRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    // Update type to use DefinedFunctionModule
-    libraries: DefinedFunctionModule[]
+    libraries: FunctionDefinition[][] // Array of modules, each containing FunctionDefinitions
 ) {
     const parsedUrl = url.parse(req.url || '', true);
     const pathname = parsedUrl.pathname || '';
@@ -99,122 +53,172 @@ async function handleRequest(
         body += chunk.toString();
     });
 
-    // Use await here as handleRequest is now async
     await new Promise<void>((resolve) => req.on('end', resolve));
 
-    let argsSource: Record<string, any> = {};
-    let isJsonBody = false;
-    let potentialDefinedFunc: DefinedFunction<any, any> | null = null; // Use DefinedFunction type
-
-    // Find the potential Zod function first
-    for (const library of libraries) {
-        if (hasOwnProperty(library, commandName)) {
-            const func = library[commandName];
-            // Check if it has the _def property expected from DefinedFunction
-            if (typeof func === 'function' && func._def) {
-                 potentialDefinedFunc = func; // Assign directly, type matches
-                 break;
-            }
-            // Optional: Handle non-Zod functions if necessary, otherwise they are ignored
+    // --- Find Command Definition ---
+    let funcDef: FunctionDefinition | null = null;
+    for (const library of libraries) { // Iterate through modules
+        const found = library.find(def => def.name === commandName);
+        if (found) {
+            funcDef = found;
+            break;
         }
     }
 
-    // If no function found by name, return 404
-    if (!potentialDefinedFunc) {
+    // If no function definition found, return 404
+    if (!funcDef) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
-        // Update error message
         res.end(JSON.stringify({ error: `Command '${commandName}' not found.` }));
         return;
     }
 
-    // Proceed with processing the found DefinedFunction
+    // --- Process Request ---
     try {
-        // Determine input source (JSON body or query params)
-        if (req.method === 'POST' && req.headers['content-type']?.includes('application/json') && body) {
-            try {
-                argsSource = JSON.parse(body);
-                isJsonBody = true;
-                if (typeof argsSource !== 'object' || argsSource === null || Array.isArray(argsSource)) {
-                    throw new Error('Request body must be a JSON object.');
+        // --- Extract Raw Input ---
+        let rawInput: Record<string, any> = {};
+        if (req.method === 'POST') {
+            if (req.headers['content-type']?.includes('application/json') && body) {
+                try {
+                    rawInput = JSON.parse(body);
+                    if (typeof rawInput !== 'object' || rawInput === null || Array.isArray(rawInput)) {
+                        throw new Error('Request body must be a JSON object.');
+                    }
+                } catch (parseError: any) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: `Invalid JSON in request body: ${parseError.message}` }));
+                    return;
                 }
-            } catch (parseError: any) {
-                 throw new Error(`Invalid JSON in request body: ${parseError.message}`);
+            } else if (body) {
+                 // POST but not JSON
+                 res.writeHead(415, { 'Content-Type': 'application/json' }); // Unsupported Media Type
+                 res.end(JSON.stringify({ error: `POST requests require 'Content-Type: application/json' header for non-empty bodies.` }));
+                 return;
+            } else {
+                // POST with empty body - treat as empty input object
+                rawInput = {};
             }
+        } else if (req.method === 'GET') {
+            rawInput = { ...parsedUrl.query }; // Clone query object
         } else {
-            // Query parameters source
-            argsSource = { ...parsedUrl.query }; // Clone query object
-            isJsonBody = false;
+            // Handle other methods like PUT, DELETE etc.
+            res.writeHead(405, { 'Content-Type': 'application/json', 'Allow': 'GET, POST, OPTIONS' }); // Method Not Allowed
+            res.end(JSON.stringify({ error: `Method ${req.method} not allowed.` }));
+            return;
         }
 
-        // Build the Zod schema for API input validation (with coercion for query strings)
-        const { schema: apiInputSchema, argNames, restArgName } = buildApiInputSchema(potentialDefinedFunc, !isJsonBody);
+        // --- Create Argument Instances from Input ---
+        const regularInstances: ArgumentInstance[] = [];
+        let restInstance: RestArgumentInstance | null = null;
+        const unknownArgs: string[] = [];
+        const argDefsMap = new Map<string, ArgumentDefinition>();
+        funcDef.arguments.forEach(argDef => argDefsMap.set(argDef.name, argDef));
+        const restArgDef = funcDef.restArgument || null; // Use null if undefined
 
-        // --- Pre-process query string arrays before Zod parsing ---
-        if (!isJsonBody) {
-            const preProcessedArgs: Record<string, any> = {};
-            for (const key in argsSource) {
-                const value = argsSource[key];
-                const fieldSchema = apiInputSchema.shape[key];
-                let expectsArray = false;
-                 if (fieldSchema) {
-                      expectsArray = fieldSchema instanceof z.ZodOptional
-                                     ? fieldSchema._def.innerType instanceof z.ZodArray
-                                     : fieldSchema instanceof z.ZodArray;
-                 }
+        for (const inputKey in rawInput) {
+            if (hasOwnProperty(rawInput, inputKey)) {
+                const rawValue = rawInput[inputKey]; // Can be string | string[] (query) or any (JSON)
 
-                 if (expectsArray && typeof value === 'string') {
-                    // Normalize single query param string to array[1] if Zod expects an array
-                    preProcessedArgs[key] = [value];
-                 } else {
-                     // Keep original value (string or string[] from url.parse)
-                     preProcessedArgs[key] = value;
-                 }
+                // Check if it's the rest argument
+                if (restArgDef && inputKey === restArgDef.name) {
+                    const restValues = Array.isArray(rawValue) ? rawValue : [rawValue];
+                    // Create RestArgumentInstance by spreading definition and adding value
+                    restInstance = {
+                        ...restArgDef, // Spread properties from definition
+                        value: restValues // Use 'value' property as per type definition
+                    };
+                }
+                // Check if it's a regular argument
+                else if (argDefsMap.has(inputKey)) {
+                    const argDef = argDefsMap.get(inputKey)!;
+                    // Create ArgumentInstance by spreading definition and adding value
+                    regularInstances.push({
+                        ...argDef, // Spread properties from definition
+                        value: rawValue // Use 'value' property as per type definition
+                    });
+                }
+                // Otherwise, it's an unknown argument
+                else {
+                    unknownArgs.push(inputKey);
+                }
             }
-             argsSource = preProcessedArgs; // Use the pre-processed args for parsing
         }
 
+        // Report unknown arguments as an error
+        if (unknownArgs.length > 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Unknown arguments provided: ${unknownArgs.join(', ')}` }));
+            return;
+        }
 
-        // Validate argsSource against the Zod schema
-        // Zod's coercion (for query strings) happens here if enabled in buildApiInputSchema
-        const validatedInput = apiInputSchema.parse(argsSource);
+        // --- Convert Arguments ---
+        // Pass separated regular and rest instances, and the definitions map/object
+        const conversionResult = convertArgumentInstances(regularInstances, restInstance, argDefsMap, restArgDef);
 
-        // Map parsed args back to tuple/spread format
+        // Check for conversion errors
+        if (conversionResult.errors.length > 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            const errorDetails = conversionResult.errors.map(e => `'${e.argumentName}': ${e.message}`).join('; ');
+            res.end(JSON.stringify({ error: `Argument conversion failed. ${errorDetails}` }));
+            return;
+        }
+
+        // --- Validate Arguments ---
+        // Pass the definitions map and the record of converted arguments
+        const validationErrors = validateArguments(argDefsMap, conversionResult.convertedArguments);
+
+        // Check for validation errors
+        if (validationErrors.length > 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            const errorDetails = validationErrors.join('; ');
+            res.end(JSON.stringify({ error: `Argument validation failed. ${errorDetails}` }));
+            return;
+        }
+
+        // --- Prepare Final Arguments for Function Call ---
         const finalCallArgs: any[] = [];
-        argNames.forEach(name => {
-            // Handle potential undefined if the schema part was optional and not provided
-            finalCallArgs.push(validatedInput[name]);
+        const convertedArgs = conversionResult.convertedArguments;
+
+        funcDef.arguments.forEach(argDef => {
+            // Get converted value or use default value if defined and value is missing
+            let value = convertedArgs[argDef.name];
+            if (value === undefined && argDef.defaultValue !== undefined) {
+                value = argDef.defaultValue;
+            }
+            finalCallArgs.push(value);
         });
-        if (restArgName && validatedInput[restArgName]) {
-            finalCallArgs.push(...(validatedInput[restArgName] as any[]));
+
+        if (funcDef.restArgument) {
+            // Get converted rest values (already an array or undefined)
+            const restValues = convertedArgs[funcDef.restArgument.name] as any[] | undefined;
+            if (restValues) { // Only spread if rest args were provided and converted
+                finalCallArgs.push(...restValues);
+            }
+            // If rest arg is optional and not provided, convertedArgs won't have it, and nothing is pushed.
         }
 
-        // Execute the defined function - it's just a function now, no cast needed
-        const result = potentialDefinedFunc(...finalCallArgs);
+        // --- Execute Command ---
+        const result = funcDef.function(...finalCallArgs);
 
-        // Handle potential promise result if the function was async
+        // Handle potential promise result
         const finalResult = (result instanceof Promise) ? await result : result;
 
-        // Send success response
+        // --- Send Success Response ---
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        // Let JSON.stringify handle non-string results
         res.end(JSON.stringify({ result: finalResult }));
 
     } catch (error: any) {
-        let errorMessage = 'Unknown execution error';
-        let statusCode = 400; // Default Bad Request
+        // --- Handle Execution Errors & Unexpected Handler Errors ---
+        let errorMessage = 'Internal server error during command execution.';
+        let statusCode = 500; // Default Internal Server Error
 
-        if (error instanceof ZodError) {
-            // Provide detailed validation errors
-            errorMessage = `Invalid arguments: ${error.errors.map(e => `'${e.path.join('.')}' ${e.message}`).join(', ')}`;
-        } else if (error instanceof Error) {
+        if (error instanceof Error) {
             errorMessage = error.message;
-            // Optionally check error message for specific internal errors?
+            // Potentially check for specific error types thrown by commands
         } else {
             errorMessage = String(error);
-            statusCode = 500; // Internal Server Error for non-Error types
         }
 
-        console.error(`[API Error] Command: ${commandName}, Status: ${statusCode}, Message: ${errorMessage}`);
+        console.error(`[API Execution Error] Command: ${commandName}, Status: ${statusCode}, Message: ${errorMessage}`, error); // Log the full error stack
         res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: errorMessage }));
     }
@@ -223,8 +227,8 @@ async function handleRequest(
 // --- API Server Entry Point ---
 
 export function runApi(
-    // Update type to use DefinedFunctionModule
-    libraries: DefinedFunctionModule[],
+    // UPDATE: Type to use FunctionDefinition[]
+    libraries: FunctionDefinition[][], // Assuming libraries is an array of modules
     port: number = 3000
 ) {
     // Pass the async handler function to createServer
@@ -234,72 +238,68 @@ export function runApi(
         console.log(`API server listening on http://localhost:${port}`);
         console.log('Available command endpoints (GET examples shown, POST with JSON body preferred):');
 
-        // Iterate through libraries and functions to generate detailed endpoint info from Zod
+        // Iterate through libraries (modules) and FunctionDefinitions
         libraries.forEach(library => {
-            Object.keys(library).forEach(commandName => {
-                const func = library[commandName];
-                // Check if it's a DefinedFunction by looking for _def
-                if (typeof func === 'function' && func._def) {
-                    const definedFunc = func; // No cast needed
-                    const zodDef = definedFunc._def; // Access the Zod definition
-                    const argTupleSchema = zodDef.args as ZodTuple<any, any>;
-                    let queryStringExample = '';
-                    const paramDetails: string[] = [];
+            library.forEach(funcDef => { // Iterate through definitions in the module
+                const commandName = funcDef.name;
+                let queryStringExample = '';
+                const paramDetails: string[] = [];
 
-                    try { // Add try-catch for safety during schema introspection
-                        // Fixed args
-                        argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
-                            const name = itemSchema.description || `arg${index}`;
-                            // Attempt to get a cleaner type name
-                            const typeName = (itemSchema._def as any).typeName?.replace(/^Zod/, '') || 'unknown';
-                            const isOptional = itemSchema.isOptional();
-                            paramDetails.push(`${name}${isOptional ? '?' : ''}: ${typeName}`);
-                            // Basic example values for query string
-                            let exampleValue = 'value';
-                            if (typeName === 'Number') exampleValue = '123';
-                            if (typeName === 'Boolean') exampleValue = 'true';
-                            // Represent arrays simply for query example
-                            if (typeName === 'Array') exampleValue = 'value1&' + encodeURIComponent(name) + '=value2'; // Correct array example
+                try {
+                    // Fixed args
+                    funcDef.arguments.forEach(argDef => {
+                        const name = argDef.name;
+                        const typeName = argDef.type; // Use type directly from definition
+                        const isOptional = argDef.optional || false; // Check optional flag
+                        paramDetails.push(`${name}${isOptional ? '?' : ''}: ${typeName}`);
 
-                            // Only add non-optional args to basic query string example
-                            if (!isOptional) {
+                        // Basic example values for query string
+                        let exampleValue = 'value';
+                        if (typeName === 'number') exampleValue = '123';
+                        if (typeName === 'boolean') exampleValue = 'true';
+                        // Represent arrays simply for query example
+                        if (typeName.endsWith('[]')) {
+                             // Example for array query param: /cmd?list=a&list=b
+                             exampleValue = `value1&${encodeURIComponent(name)}=value2`;
+                        }
+
+
+                        // Only add non-optional args to basic query string example
+                        if (!isOptional) {
+                            // Handle array example value correctly
+                            if (typeName.endsWith('[]')) {
+                                queryStringExample += `${queryStringExample ? '&' : '?'}${encodeURIComponent(name)}=value1&${encodeURIComponent(name)}=value2`;
+                            } else {
                                 queryStringExample += `${queryStringExample ? '&' : '?'}${encodeURIComponent(name)}=${exampleValue}`;
                             }
-                        });
+                        }
+                    });
 
-                        // Rest arg
-                        if (argTupleSchema._def.rest) {
-                            const restSchema = argTupleSchema._def.rest as ZodTypeAny;
-                            const name = restSchema.description || 'restArgs';
-                            const elementTypeName = (restSchema._def as any).typeName?.replace(/^Zod/, '') || 'unknown';
-                            paramDetails.push(`...${name}: ${elementTypeName}[]`);
-                            // Append rest args example - API often uses repeated param name
-                            queryStringExample += `${queryStringExample ? '&' : '?'}${encodeURIComponent(name)}=value1&${encodeURIComponent(name)}=value2`;
-                        }
-
-                        console.log(`  /${commandName}${queryStringExample || ''}`); // Add default empty string
-                        if (paramDetails.length > 0) {
-                            console.log(`    Parameters: ${paramDetails.join(', ')}`);
-                        }
-                        if (zodDef.description) { // Use description from zodDef
-                            console.log(`    Description: ${zodDef.description}`);
-                        } else {
-                             console.log(`    Description: (No description provided)`);
-                        }
-                    } catch (docError: any) {
-                         console.log(`  /${commandName} - Error generating documentation: ${docError.message}`);
+                    // Rest arg
+                    if (funcDef.restArgument) {
+                        const restDef = funcDef.restArgument;
+                        const name = restDef.name;
+                        const elementTypeName = restDef.type; // Type of elements in the rest array
+                        paramDetails.push(`...${name}: ${elementTypeName}[]`);
+                        // Append rest args example - API often uses repeated param name
+                        queryStringExample += `${queryStringExample ? '&' : '?'}${encodeURIComponent(name)}=value1&${encodeURIComponent(name)}=value2`;
                     }
-                } else {
-                    // Log functions that don't seem to be DefinedFunctions
-                    console.log(`  /${commandName} - (Skipping documentation: Not recognized as DefinedFunction)`);
+
+                    console.log(`  /${commandName}${queryStringExample || ''}`);
+                    if (paramDetails.length > 0) {
+                        console.log(`    Parameters: ${paramDetails.join(', ')}`);
+                    }
+                    if (funcDef.description) {
+                        console.log(`    Description: ${funcDef.description}`);
+                    } else {
+                         console.log(`    Description: (No description provided)`);
+                    }
+                } catch (docError: any) {
+                     console.log(`  /${commandName} - Error generating documentation: ${docError.message}`);
                 }
-                // Remove the old non-Zod fallback
-                // else if (typeof func === 'function') {
-                //     console.log(`  /${commandName} - (Non-Zod function)`);
-                // }
             });
         });
         console.log('Note: For POST requests, send arguments as a JSON object in the request body.');
-        console.log('Note: Query string parameters are coerced (e.g., "123" -> 123, "true" -> true).');
+        // REMOVED: Coercion note, handled by converter/validator now.
     });
 }

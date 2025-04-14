@@ -1,7 +1,18 @@
-import { z, ZodFunction, ZodTuple, ZodTypeAny, ZodObject, ZodError } from 'zod';
-import { processArgs } from '../cli-lib/shared'; // Keep this import
+// Removed zod imports
+// Removed import for processArgs from deleted cli-lib/shared
 import process from 'process'; // Import process for argv
-import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js'; // Import new types
+// Removed DefinedFunctionModule, DefinedFunction from zod-function-utils
+import {
+    FunctionDefinition,
+    ArgumentDefinition,
+    ArgumentInstance,
+    RestArgumentInstance,
+    // Removed incorrect error type imports from command-types
+} from '../../system/command-types'; // Import new types
+// Import locally defined types from converter if needed for clarity, or rely on inference
+import { ConversionResult, ConversionError, ConvertedArgumentValue } from '../../system/command-parser/argument-converter';
+import { convertArgumentInstances } from '../../system/command-parser/argument-converter';
+import { validateArguments } from '../../system/command-parser/argument-validator';
 
 // Helper to check if a property exists on an object (using the local definition)
 function hasOwnProperty<X extends {}, Y extends PropertyKey>
@@ -9,148 +20,195 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-// Helper function to safely check if an object is a ZodFunction
-// function isZodFunction(func: any): func is ZodFunction<any, any> {
-//     return typeof func === 'object' && func !== null && 'inputSchema' in func && 'execute' in func;
-// }
-
-// Helper to build the ZodObject schema expected from the JSON input
-// Accepts DefinedFunction and uses its _def
-function buildJsonInputSchema(definedFunc: DefinedFunction<any, any>): {
-    schema: ZodObject<any, any, any, any, any>;
-    argNames: string[];
-    restArgName?: string;
-} {
-    const zodDef = definedFunc._def; // Access definition
-    const argTupleSchema = zodDef.args as ZodTuple<any, any>;
-    let shape: Record<string, ZodTypeAny> = {};
-    let argNames: string[] = [];
-    let restArgName: string | undefined;
-
-    // Process fixed tuple arguments
-    argTupleSchema._def.items.forEach((itemSchema: ZodTypeAny, index: number) => {
-        const name = itemSchema.description || `arg${index}`;
-        if (shape[name]) {
-             console.warn(`[JSON:${zodDef.description || 'unknown'}] Duplicate argument name/description '${name}'.`);
-             return;
-        }
-        shape[name] = itemSchema; // No coercion needed for JSON input
-        argNames.push(name);
-    });
-
-    // Process rest argument
-    if (argTupleSchema._def.rest) {
-        const restSchema = argTupleSchema._def.rest as ZodTypeAny;
-        restArgName = restSchema.description || 'restArgs';
-        if (shape[restArgName]) {
-            console.warn(`[JSON:${zodDef.description || 'unknown'}] Duplicate name/description '${restArgName}' for rest parameter.`);
-        } else {
-            // JSON input expects rest args as an optional array
-            let arrayType = z.array(restSchema).optional();
-            if (restSchema.description) {
-                arrayType = arrayType.describe(restSchema.description || `Variable number of ${restArgName}`);
-            }
-            shape[restArgName] = arrayType;
-        }
-    }
-    // Use strict() to prevent extra properties in the JSON input
-    return { schema: z.object(shape).strict(), argNames, restArgName };
-}
+// Removed buildJsonInputSchema helper function
 
 
 // Renamed function to runJson and adjusted signature
-export function runJson(
-    libraries: DefinedFunctionModule[], // Update library type
-): void { // Return void as it will handle printing/exiting
+// Make the function async to handle potential promises from commands
+export async function runJson(
+    libraries: FunctionDefinition[][], // Use FunctionDefinition[][] as library type
+): Promise<void> { // Return Promise<void>
     // REVERT: Read process.argv directly and filter --json
     const rawArgs = process.argv.slice(2).filter(arg => arg !== '--json');
-    const commands = processArgs(rawArgs); // Use processArgs from cli-lib
 
-    if (commands.length === 0) {
-        console.error("No command provided.");
+    if (rawArgs.length === 0) {
+        console.error("No command name provided.");
         process.exit(1);
     }
-    // JSON mode handles only the first command with a single JSON object arg
-    const command = commands[0];
-    const { commandName, commandArgs } = command;
 
-    // Basic check if the input looks like a single JSON argument
-    const isPotentialJsonInput = commandArgs.length === 1 && commandArgs[0].trim().startsWith('{');
+    const commandName = rawArgs[0];
+    const jsonArgsString = rawArgs[1]; // Expect the JSON string as the second argument
 
-    if (!isPotentialJsonInput) {
-         console.error(`Input for command '${commandName}' must be a single JSON object string (e.g., '{"arg1": "value1", "arg2": 123}').`);
-         process.exit(1);
+    // Check if the JSON argument string is provided and looks like JSON
+    if (rawArgs.length !== 2 || typeof jsonArgsString !== 'string' || !jsonArgsString.trim().startsWith('{')) {
+        console.error(`Input for command '${commandName}' must be a command name followed by a single JSON object string (e.g., command '{"arg1": "value1"}').`);
+        process.exit(1);
     }
+    // Note: Further JSON parsing happens later in the try block (around line 71)
+    // We now use jsonArgsString directly there instead of commandArgs[0]
 
     let executionResult: any;
-    let executionError: Error | undefined;
-    let definedFunc: DefinedFunction<any, any> | null = null; // Use DefinedFunction type
+    let collectedErrors: (Error | ConversionError | string)[] = []; // Collect errors (Error, ConversionError, or string from validator)
+    let funcDef: FunctionDefinition | null = null; // Use FunctionDefinition type
 
     try {
-        // Find the Defined function
+        // Find the FunctionDefinition
         for (const library of libraries) {
-            if (hasOwnProperty(library, commandName)) {
-                const func = library[commandName];
-                if (typeof func === 'function' && func._def) {
-                    definedFunc = func;
-                    break;
-                }
+            // Assuming libraries is now FunctionDefinition[][]
+            const foundFunc = library.find(f => f.name === commandName);
+            if (foundFunc) {
+                funcDef = foundFunc;
+                break;
             }
         }
 
-        if (!definedFunc) {
-            throw new Error(`Command '${commandName}' not found or is not a DefinedFunction.`);
+        if (!funcDef) {
+            throw new Error(`Command '${commandName}' not found.`);
         }
-        const zodDef = definedFunc._def; // Get definition
 
         // Parse the JSON string input
-        const jsonArgsString = commandArgs[0];
+        // const jsonArgsString = commandArgs[0]; // Now defined earlier from rawArgs[1]
         let parsedJsonInput: unknown;
         try {
             parsedJsonInput = JSON.parse(jsonArgsString);
         } catch (jsonError: any) {
-            throw new Error(`Invalid JSON provided for command '${zodDef.description || commandName}': ${jsonError.message}`);
+            throw new Error(`Invalid JSON provided for command '${funcDef.name}': ${jsonError.message}`);
         }
 
-        // Build the expected Zod schema for the JSON object
-        const { schema: jsonInputSchema, argNames, restArgName } = buildJsonInputSchema(definedFunc);
+        if (typeof parsedJsonInput !== 'object' || parsedJsonInput === null || Array.isArray(parsedJsonInput)) {
+            throw new Error(`JSON input for command '${funcDef.name}' must be an object.`);
+        }
 
-        // Validate the parsed JSON against the schema
-        const validatedInput = jsonInputSchema.parse(parsedJsonInput);
+        // --- Create Stringified Argument Instances from JSON ---
+        const stringifiedArgInstances: ArgumentInstance[] = [];
+        let stringifiedRestInstance: RestArgumentInstance | null = null;
+        const providedArgNames = new Set<string>();
+        const argDefMap = new Map(funcDef.arguments.map(def => [def.name, def]));
+        const instanceCreationErrors: string[] = [];
 
-        // Map validated object properties back to tuple/spread format
+        for (const [key, rawValue] of Object.entries(parsedJsonInput)) {
+            providedArgNames.add(key);
+            const definition = argDefMap.get(key);
+            const restDefinition = funcDef.restArgument;
+
+            if (restDefinition && key === restDefinition.name) {
+                if (!Array.isArray(rawValue)) {
+                    instanceCreationErrors.push(`Rest argument '${key}' must be an array, but received type ${typeof rawValue}.`);
+                    continue;
+                }
+                // Convert each element to string for the converter
+                const stringValues = rawValue.map(v => String(v));
+                // Use spread syntax and correct property name 'value'
+                stringifiedRestInstance = { ...restDefinition, value: stringValues };
+            } else if (definition) {
+                 // Convert raw value to string for the converter
+                const stringValue = String(rawValue);
+                 // Use spread syntax
+                stringifiedArgInstances.push({ ...definition, value: stringValue });
+            } else {
+                instanceCreationErrors.push(`Unknown argument '${key}' provided.`);
+            }
+        }
+
+        // Check for missing required arguments (using optional property)
+        for (const argDef of funcDef.arguments) {
+            // Required if optional is not true
+            if (!argDef.optional && !providedArgNames.has(argDef.name)) {
+                // Don't error yet if it has a default value, converter/validator might handle it
+                if (argDef.defaultValue === undefined) {
+                    instanceCreationErrors.push(`Missing required argument '${argDef.name}'.`);
+                }
+            }
+        }
+
+        if (instanceCreationErrors.length > 0) {
+            // Throw collected instance creation errors before proceeding
+            throw new Error(`Invalid arguments provided for command '${funcDef.name}': ${instanceCreationErrors.join('; ')}`);
+        }
+
+        // --- Convert Arguments ---
+        const conversionResult = convertArgumentInstances(
+            stringifiedArgInstances,
+            stringifiedRestInstance,
+            argDefMap, // Pass the map of definitions
+            funcDef.restArgument || null // Pass the rest definition or null
+        );
+
+        if (conversionResult.errors.length > 0) {
+            collectedErrors.push(...conversionResult.errors);
+            // Allow continuing to validation phase even with conversion errors,
+            // as validation might catch different issues (like missing required args).
+        }
+
+        // --- Validate Arguments ---
+        // Pass the map and the record of converted args
+        const validationErrors = validateArguments(
+            argDefMap,
+            conversionResult.convertedArguments
+        );
+
+        if (validationErrors.length > 0) {
+            collectedErrors.push(...validationErrors);
+        }
+
+        // --- Check Collected Errors ---
+        if (collectedErrors.length > 0) {
+            // Format collected errors (can be Error, ConversionError, or string)
+            const errorMessages = collectedErrors.map(e => {
+                if (e instanceof Error) return e.message;
+                if (typeof e === 'string') return e; // Validation error message
+                // Format ConversionError
+                return `Argument "${e.argumentName}": ${e.message} (Raw value: ${JSON.stringify(e.rawValue)})`;
+            }).join('; ');
+            throw new Error(`Argument processing failed for '${funcDef.name}': ${errorMessages}`);
+        }
+
+        // --- Prepare Final Arguments for Execution ---
         const finalCallArgs: any[] = [];
-        argNames.forEach(name => {
-             finalCallArgs.push(validatedInput[name]);
-        });
-         if (restArgName && validatedInput[restArgName]) {
-            finalCallArgs.push(...(validatedInput[restArgName] as any[]));
+        for (const argDef of funcDef.arguments) {
+            let value = conversionResult.convertedArguments[argDef.name];
+            // Apply default value if argument wasn't provided or conversion resulted in undefined
+            if (value === undefined && argDef.defaultValue !== undefined) {
+                value = argDef.defaultValue;
+            }
+            // Note: A required argument missing here should have been caught by validation
+            finalCallArgs.push(value);
+        }
+
+        if (funcDef.restArgument) {
+            const restValue = conversionResult.convertedArguments[funcDef.restArgument.name];
+            if (Array.isArray(restValue)) { // Should always be array if present and converted correctly
+                finalCallArgs.push(...restValue);
+            }
+            // Handle case where rest arg has default value? (Less common, maybe add later if needed)
         }
 
         // Execute the Defined function
-         // Check if return type is a promise
-         const returnsPromise = zodDef.returns instanceof z.ZodPromise;
-         if (returnsPromise) {
-             // As this function isn't async, log a warning.
-             console.warn(`[${zodDef.description || commandName}] Warning: Command is async, but JSON CLI execution is currently synchronous. Result might be a Promise object.`);
-         }
-         // Call function directly, no cast needed
-        executionResult = definedFunc(...finalCallArgs);
+        // Execute the function (now async)
+        executionResult = await funcDef.function(...finalCallArgs);
 
     } catch (error: any) {
-         const commandDesc = definedFunc?._def?.description || commandName; // Get description for error if possible
-         if (error instanceof ZodError) {
-             executionError = new Error(`Invalid JSON arguments for '${commandDesc}': ${error.errors.map((e: z.ZodIssue) => `'${e.path.join('.')}' ${e.message}`).join(', ')}`);
-         } else {
-            executionError = error instanceof Error ? error : new Error(String(error));
-         }
+        // Collect errors from the try block
+        if (error instanceof Error) {
+            collectedErrors.push(error);
+        } else {
+            collectedErrors.push(new Error(String(error)));
+        }
     }
 
     // Handle printing result/error
-    if (executionError) {
-        // Output error as JSON to stderr
-        console.error(JSON.stringify({ error: executionError.message }));
-        process.exit(1);
+    // Handle printing result/error based on collected errors
+    if (collectedErrors.length > 0) {
+        // Format collected errors (can be Error, ConversionError, or string) into a list of strings
+        const errorMessages = collectedErrors.map(e => {
+            if (e instanceof Error) return e.message;
+            if (typeof e === 'string') return e; // Validation error message
+            // Format ConversionError (assuming ConversionError has argumentName, message, rawValue)
+            return `Argument "${e.argumentName}": ${e.message} (Raw value: ${JSON.stringify(e.rawValue)})`;
+        });
+        // Output the list of error messages as JSON to stderr
+        console.error(JSON.stringify({ errors: errorMessages }));
+        process.exit(1); // Exit with non-zero code on error
     } else {
         // Output result as JSON to stdout
         try {
@@ -158,7 +216,7 @@ export function runJson(
             const resultJson = JSON.stringify({ result: executionResult });
             console.log(resultJson);
         } catch (stringifyError: any) {
-            const commandDesc = definedFunc?._def?.description || commandName; // Get description for error if possible
+            const commandDesc = funcDef?.name || commandName; // Get name for error if possible
             console.error(JSON.stringify({ error: `Failed to serialize result for command '${commandDesc}': ${stringifyError.message}` }));
             process.exit(1);
         }

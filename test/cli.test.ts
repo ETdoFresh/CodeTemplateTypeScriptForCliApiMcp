@@ -1,14 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'; // Added vi
 import { execSync } from 'child_process';
 import * as path from 'path';
+import { z } from 'zod'; // Import Zod
 import { processArgs, executeParsedCommands } from '../src/interface-libraries/cli-lib/shared';
+import { DefineFunction, DefineObjectFunction } from '../src/utils/zod-function-utils'; // Import wrappers
 // Corrected import path for calculator-lib
 import * as calculatorLib from '../src/command-libraries/calculator-lib/index';
 // Import hello-lib for new tests
 import * as helloLib from '../src/command-libraries/hello-lib/index';
 import * as echoLib from '../src/command-libraries/echo-lib/index';
 import * as inspectLib from '../src/command-libraries/inspect-lib/index';
-import { vi } from 'vitest';
+// Removed duplicate vi import
 // test/cli.test.ts
 
 // Helper function to run CLI commands
@@ -58,7 +60,8 @@ describe('CLI Integration Tests', () => {
     it('should handle subtract command with missing arguments (CLI)', () => {
       const result = runCliCommand('subtract 10');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/at least two numbers/i);
+      // Assuming the parser catches missing required positional arguments
+      expect(result.stderr).toMatch(/Missing required argument: numbers/i);
     });
 
     it('should execute multiply command correctly', () => {
@@ -71,7 +74,8 @@ describe('CLI Integration Tests', () => {
     it('should handle multiply command with missing arguments (CLI)', () => {
       const result = runCliCommand('multiply 2');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/at least two numbers/i);
+      // Assuming the parser catches missing required positional arguments
+      expect(result.stderr).toMatch(/Missing required argument: numbers/i);
     });
 
     it('should execute divide command correctly', () => {
@@ -84,13 +88,15 @@ describe('CLI Integration Tests', () => {
     it('should handle divide by zero (CLI)', () => {
       const result = runCliCommand('divide 10 0');
       expect(result.error).toBeDefined();
+      // Division by zero is a runtime error from the function itself, not the parser
       expect(result.stderr).toMatch(/division by zero/i);
     });
 
     it('should handle divide command with missing arguments (CLI)', () => {
       const result = runCliCommand('divide 10');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/at least two numbers/i);
+      // Assuming the parser catches missing required positional arguments
+      expect(result.stderr).toMatch(/Missing required argument: numbers/i);
     });
   });
 
@@ -143,6 +149,13 @@ describe('CLI Integration Tests', () => {
       expect(result.error).toBeUndefined();
       expect(result.stderr).toBe('');
       expect(result.stdout).toBe('a  b\n');
+    });
+
+    it('should echo quoted strings', () => {
+      const result = runCliCommand('echo "hello world"');
+      expect(result.error).toBeUndefined();
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toBe('hello world\n');
     });
   });
 
@@ -223,7 +236,8 @@ describe('CLI Integration Tests', () => {
     it('should handle helloString command with missing argument (CLI)', () => {
       const result = runCliCommand('helloString');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/string/i);
+      // Expecting new error format for missing required argument
+      expect(result.stderr).toMatch(/Missing required argument: name/i);
     });
 
     it('should execute helloNumber command correctly', () => {
@@ -236,7 +250,8 @@ describe('CLI Integration Tests', () => {
     it('should handle helloNumber command with invalid argument (CLI)', () => {
       const result = runCliCommand('helloNumber notANumber');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/number/i);
+      // Expecting new error format for invalid type
+      expect(result.stderr).toMatch(/Invalid value 'notANumber' for argument 'value'. Expected number./i);
     });
 
     it('should execute helloBoolean command correctly (true)', () => {
@@ -256,7 +271,8 @@ describe('CLI Integration Tests', () => {
     it('should handle helloBoolean command with invalid argument (CLI)', () => {
       const result = runCliCommand('helloBoolean notABoolean');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/boolean/i);
+      // Expecting new error format for invalid type
+      expect(result.stderr).toMatch(/Invalid value 'notABoolean' for argument 'value'. Expected boolean./i);
     });
 
     it('should execute helloStringArray command correctly', () => {
@@ -269,7 +285,8 @@ describe('CLI Integration Tests', () => {
     it('should handle helloStringArray command with no arguments (CLI)', () => {
       const result = runCliCommand('helloStringArray');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/array/i);
+      // Expecting new error format for missing required argument (assuming it's a rest arg)
+      expect(result.stderr).toMatch(/Missing required argument: names/i);
     });
 
     it('should execute helloNumberArray command correctly', () => {
@@ -282,13 +299,29 @@ describe('CLI Integration Tests', () => {
     it('should handle helloNumberArray command with invalid argument (CLI)', () => {
       const result = runCliCommand('helloNumberArray 1 two 3');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/number/i);
+      // Expecting new error format for invalid type within an array
+      expect(result.stderr).toMatch(/Invalid value 'two' for argument 'values'. Expected number array./i);
     });
 
     it('should handle helloNumberArray command with no arguments (CLI)', () => {
       const result = runCliCommand('helloNumberArray');
       expect(result.error).toBeDefined();
-      expect(result.stderr).toMatch(/array/i);
+      // Expecting new error format for missing required argument (assuming it's a rest arg)
+      expect(result.stderr).toMatch(/Missing required argument: values/i);
+    });
+
+    it('should handle helloString command with too many arguments (CLI)', () => {
+      const result = runCliCommand('helloString Alice Bob');
+      expect(result.error).toBeDefined();
+      // Expecting new error format for too many positional arguments
+      expect(result.stderr).toMatch(/Too many positional arguments provided/i);
+    });
+
+    it('should handle helloString command with unknown named argument (CLI)', () => {
+      const result = runCliCommand('helloString Alice --unknown=value');
+      expect(result.error).toBeDefined();
+      // Expecting new error format for unknown named arguments
+      expect(result.stderr).toMatch(/Unknown named argument: unknown/i);
     });
   });
 
@@ -300,9 +333,16 @@ describe('CLI Integration Tests', () => {
     // --- hello-lib REPL Tests ---
     describe('hello-lib', () => {
       it('should execute helloString command correctly (REPL)', () => {
-        const lib = { helloString: helloLib.helloString };
+        // Wrap the function for the test
+        const mockLib = {
+          helloString: DefineFunction({
+            description: helloLib.helloString.description || 'mock',
+            args: z.tuple([z.string().describe('name')]), // Define args schema
+            function: helloLib.helloString.function // Use the raw function
+          })
+        };
         const commandsToExecute = processArgs(['helloString Alice']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeUndefined();
@@ -310,19 +350,33 @@ describe('CLI Integration Tests', () => {
       });
 
       it('should handle helloString command with missing argument (REPL)', () => {
-        const lib = { helloString: helloLib.helloString };
+        // Wrap the function for the test
+        const mockLib = {
+          helloString: DefineFunction({
+            description: helloLib.helloString.description || 'mock',
+            args: z.tuple([z.string().describe('name')]),
+            function: helloLib.helloString.function
+          })
+        };
         const commandsToExecute = processArgs(['helloString']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeDefined();
-        expect(result.error?.message).toMatch(/string/i);
+        expect(result.error?.message).toMatch(/Missing required argument: name/i);
       });
 
       it('should execute helloNumber command correctly (REPL)', () => {
-        const lib = { helloNumber: helloLib.helloNumber };
+        // Wrap the function for the test
+        const mockLib = {
+          helloNumber: DefineFunction({
+            description: helloLib.helloNumber.description || 'mock',
+            args: z.tuple([z.number().describe('value')]), // Define args schema
+            function: helloLib.helloNumber.function
+          })
+        };
         const commandsToExecute = processArgs(['helloNumber 42']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeUndefined();
@@ -330,19 +384,33 @@ describe('CLI Integration Tests', () => {
       });
 
       it('should handle helloNumber command with invalid argument (REPL)', () => {
-        const lib = { helloNumber: helloLib.helloNumber };
+        // Wrap the function for the test
+        const mockLib = {
+          helloNumber: DefineFunction({
+            description: helloLib.helloNumber.description || 'mock',
+            args: z.tuple([z.number().describe('value')]),
+            function: helloLib.helloNumber.function
+          })
+        };
         const commandsToExecute = processArgs(['helloNumber notANumber']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeDefined();
-        expect(result.error?.message).toMatch(/number/i);
+        expect(result.error?.message).toMatch(/Invalid value 'notANumber' for argument 'value'. Expected number./i);
       });
 
       it('should execute helloBoolean command correctly (REPL, true)', () => {
-        const lib = { helloBoolean: helloLib.helloBoolean };
+        // Wrap the function for the test
+        const mockLib = {
+          helloBoolean: DefineFunction({
+            description: helloLib.helloBoolean.description || 'mock',
+            args: z.tuple([z.boolean().describe('value')]), // Define args schema
+            function: helloLib.helloBoolean.function
+          })
+        };
         const commandsToExecute = processArgs(['helloBoolean true']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeUndefined();
@@ -350,9 +418,16 @@ describe('CLI Integration Tests', () => {
       });
 
       it('should execute helloBoolean command correctly (REPL, false)', () => {
-        const lib = { helloBoolean: helloLib.helloBoolean };
+        // Wrap the function for the test
+        const mockLib = {
+          helloBoolean: DefineFunction({
+            description: helloLib.helloBoolean.description || 'mock',
+            args: z.tuple([z.boolean().describe('value')]),
+            function: helloLib.helloBoolean.function
+          })
+        };
         const commandsToExecute = processArgs(['helloBoolean false']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeUndefined();
@@ -360,19 +435,33 @@ describe('CLI Integration Tests', () => {
       });
 
       it('should handle helloBoolean command with invalid argument (REPL)', () => {
-        const lib = { helloBoolean: helloLib.helloBoolean };
+        // Wrap the function for the test
+        const mockLib = {
+          helloBoolean: DefineFunction({
+            description: helloLib.helloBoolean.description || 'mock',
+            args: z.tuple([z.boolean().describe('value')]),
+            function: helloLib.helloBoolean.function
+          })
+        };
         const commandsToExecute = processArgs(['helloBoolean notABoolean']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeDefined();
-        expect(result.error?.message).toMatch(/boolean/i);
+        expect(result.error?.message).toMatch(/Invalid value 'notABoolean' for argument 'value'. Expected boolean./i);
       });
 
       it('should execute helloStringArray command correctly (REPL)', () => {
-        const lib = { helloStringArray: helloLib.helloStringArray };
+        // Wrap the function for the test (using rest argument)
+        const mockLib = {
+          helloStringArray: DefineFunction({
+            description: helloLib.helloStringArray.description || 'mock',
+            args: z.tuple([]).rest(z.string().describe('names')), // Define rest args schema
+            function: helloLib.helloStringArray.function
+          })
+        };
         const commandsToExecute = processArgs(['helloStringArray foo bar baz']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeUndefined();
@@ -380,19 +469,33 @@ describe('CLI Integration Tests', () => {
       });
 
       it('should handle helloStringArray command with no arguments (REPL)', () => {
-        const lib = { helloStringArray: helloLib.helloStringArray };
+        // Wrap the function for the test
+        const mockLib = {
+          helloStringArray: DefineFunction({
+            description: helloLib.helloStringArray.description || 'mock',
+            args: z.tuple([]).rest(z.string().describe('names')),
+            function: helloLib.helloStringArray.function
+          })
+        };
         const commandsToExecute = processArgs(['helloStringArray']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeDefined();
-        expect(result.error?.message).toMatch(/array/i);
+        expect(result.error?.message).toMatch(/Missing required argument: names/i);
       });
 
       it('should execute helloNumberArray command correctly (REPL)', () => {
-        const lib = { helloNumberArray: helloLib.helloNumberArray };
+        // Wrap the function for the test (using rest argument)
+        const mockLib = {
+          helloNumberArray: DefineFunction({
+            description: helloLib.helloNumberArray.description || 'mock',
+            args: z.tuple([]).rest(z.number().describe('values')), // Define rest args schema
+            function: helloLib.helloNumberArray.function
+          })
+        };
         const commandsToExecute = processArgs(['helloNumberArray 1 2 3']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeUndefined();
@@ -400,31 +503,52 @@ describe('CLI Integration Tests', () => {
       });
 
       it('should handle helloNumberArray command with invalid argument (REPL)', () => {
-        const lib = { helloNumberArray: helloLib.helloNumberArray };
+        // Wrap the function for the test
+        const mockLib = {
+          helloNumberArray: DefineFunction({
+            description: helloLib.helloNumberArray.description || 'mock',
+            args: z.tuple([]).rest(z.number().describe('values')),
+            function: helloLib.helloNumberArray.function
+          })
+        };
         const commandsToExecute = processArgs(['helloNumberArray 1 two 3']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeDefined();
-        expect(result.error?.message).toMatch(/number/i);
+        expect(result.error?.message).toMatch(/Invalid value 'two' for argument 'values'. Expected number array./i);
       });
 
       it('should handle helloNumberArray command with no arguments (REPL)', () => {
-        const lib = { helloNumberArray: helloLib.helloNumberArray };
+        // Wrap the function for the test
+        const mockLib = {
+          helloNumberArray: DefineFunction({
+            description: helloLib.helloNumberArray.description || 'mock',
+            args: z.tuple([]).rest(z.number().describe('values')),
+            function: helloLib.helloNumberArray.function
+          })
+        };
         const commandsToExecute = processArgs(['helloNumberArray']);
-        const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+        const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
         expect(executionResults).toHaveLength(1);
         const result = executionResults[0];
         expect(result.error).toBeDefined();
-        expect(result.error?.message).toMatch(/array/i);
+        expect(result.error?.message).toMatch(/Missing required argument: values/i);
       });
     });
       // --- echo-lib REPL Tests ---
       describe('echo-lib', () => {
         it('should echo a single word (REPL)', () => {
-          const lib = { echo: echoLib.echo };
+          // Wrap the function for the test (echo uses rest string array)
+          const mockLib = {
+            echo: DefineFunction({
+              description: echoLib.echo.description || 'mock',
+              args: z.tuple([]).rest(z.string().describe('messages')), // Define rest args
+              function: echoLib.echo.function
+            })
+          };
           const commandsToExecute = processArgs(['echo hello']);
-          const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+          const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
           expect(executionResults).toHaveLength(1);
           const result = executionResults[0];
           expect(result.error).toBeUndefined();
@@ -432,9 +556,16 @@ describe('CLI Integration Tests', () => {
         });
   
         it('should echo multiple words (REPL)', () => {
-          const lib = { echo: echoLib.echo };
+          // Wrap the function for the test
+          const mockLib = {
+            echo: DefineFunction({
+              description: echoLib.echo.description || 'mock',
+              args: z.tuple([]).rest(z.string().describe('messages')),
+              function: echoLib.echo.function
+            })
+          };
           const commandsToExecute = processArgs(['echo foo bar baz']);
-          const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+          const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
           expect(executionResults).toHaveLength(1);
           const result = executionResults[0];
           expect(result.error).toBeUndefined();
@@ -442,9 +573,16 @@ describe('CLI Integration Tests', () => {
         });
   
         it('should echo numbers as strings (REPL)', () => {
-          const lib = { echo: echoLib.echo };
+          // Wrap the function for the test
+          const mockLib = {
+            echo: DefineFunction({
+              description: echoLib.echo.description || 'mock',
+              args: z.tuple([]).rest(z.string().describe('messages')),
+              function: echoLib.echo.function
+            })
+          };
           const commandsToExecute = processArgs(['echo 1 2 3']);
-          const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+          const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
           expect(executionResults).toHaveLength(1);
           const result = executionResults[0];
           expect(result.error).toBeUndefined();
@@ -452,9 +590,16 @@ describe('CLI Integration Tests', () => {
         });
   
         it('should echo special characters (REPL)', () => {
-          const lib = { echo: echoLib.echo };
+          // Wrap the function for the test
+          const mockLib = {
+            echo: DefineFunction({
+              description: echoLib.echo.description || 'mock',
+              args: z.tuple([]).rest(z.string().describe('messages')),
+              function: echoLib.echo.function
+            })
+          };
           const commandsToExecute = processArgs(['echo ! @ # $ %']);
-          const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+          const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
           expect(executionResults).toHaveLength(1);
           const result = executionResults[0];
           expect(result.error).toBeUndefined();
@@ -462,9 +607,16 @@ describe('CLI Integration Tests', () => {
         });
   
         it('should echo empty input as empty string (REPL)', () => {
-          const lib = { echo: echoLib.echo };
+          // Wrap the function for the test
+          const mockLib = {
+            echo: DefineFunction({
+              description: echoLib.echo.description || 'mock',
+              args: z.tuple([]).rest(z.string().describe('messages')),
+              function: echoLib.echo.function
+            })
+          };
           const commandsToExecute = processArgs(['echo']);
-          const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+          const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
           expect(executionResults).toHaveLength(1);
           const result = executionResults[0];
           expect(result.error).toBeUndefined();
@@ -493,9 +645,17 @@ describe('CLI Integration Tests', () => {
     
             setTimeout(() => { events['close']?.(0); }, 0);
     
-            const lib = { inspect: inspectLib.inspect };
+            // Wrap the function for the test (inspect takes no args)
+            const mockLib = {
+              inspect: DefineFunction({
+                description: inspectLib.inspect.description || 'mock',
+                args: z.tuple([]), // No arguments
+                function: inspectLib.inspect.function
+              })
+            };
             const commandsToExecute = processArgs(['inspect']);
-            const executionResults = await executeParsedCommands(commandsToExecute, [lib]);
+            // Note: executeParsedCommands might not handle async functions correctly based on shared.ts warnings
+            const executionResults = await executeParsedCommands(commandsToExecute, [mockLib]);
             expect(executionResults).toHaveLength(1);
             const result = executionResults[0];
             expect(result.error).toBeUndefined();
@@ -511,9 +671,16 @@ describe('CLI Integration Tests', () => {
     
             setTimeout(() => { events['close']?.(2); }, 0);
     
-            const lib = { inspect: inspectLib.inspect };
+            // Wrap the function for the test
+            const mockLib = {
+              inspect: DefineFunction({
+                description: inspectLib.inspect.description || 'mock',
+                args: z.tuple([]),
+                function: inspectLib.inspect.function
+              })
+            };
             const commandsToExecute = processArgs(['inspect']);
-            const executionResults = await executeParsedCommands(commandsToExecute, [lib]);
+            const executionResults = await executeParsedCommands(commandsToExecute, [mockLib]);
             expect(executionResults).toHaveLength(1);
             const result = executionResults[0];
             expect(result.error).toBeDefined();
@@ -529,9 +696,16 @@ describe('CLI Integration Tests', () => {
     
             setTimeout(() => { events['error']?.(new Error('spawn failed')); }, 0);
     
-            const lib = { inspect: inspectLib.inspect };
+            // Wrap the function for the test
+            const mockLib = {
+              inspect: DefineFunction({
+                description: inspectLib.inspect.description || 'mock',
+                args: z.tuple([]),
+                function: inspectLib.inspect.function
+              })
+            };
             const commandsToExecute = processArgs(['inspect']);
-            const executionResults = await executeParsedCommands(commandsToExecute, [lib]);
+            const executionResults = await executeParsedCommands(commandsToExecute, [mockLib]);
             expect(executionResults).toHaveLength(1);
             const result = executionResults[0];
             expect(result.error).toBeDefined();
@@ -540,9 +714,16 @@ describe('CLI Integration Tests', () => {
         });
   
         it('should echo empty string argument (REPL)', () => {
-          const lib = { echo: echoLib.echo };
+          // Wrap the function for the test
+          const mockLib = {
+            echo: DefineFunction({
+              description: echoLib.echo.description || 'mock',
+              args: z.tuple([]).rest(z.string().describe('messages')),
+              function: echoLib.echo.function
+            })
+          };
           const commandsToExecute = processArgs(['echo ""']);
-          const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+          const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
           expect(executionResults).toHaveLength(1);
           const result = executionResults[0];
           expect(result.error).toBeUndefined();
@@ -550,9 +731,16 @@ describe('CLI Integration Tests', () => {
         });
   
         it('should echo with empty string in between (REPL)', () => {
-          const lib = { echo: echoLib.echo };
+          // Wrap the function for the test
+          const mockLib = {
+            echo: DefineFunction({
+              description: echoLib.echo.description || 'mock',
+              args: z.tuple([]).rest(z.string().describe('messages')),
+              function: echoLib.echo.function
+            })
+          };
           const commandsToExecute = processArgs(['echo a "" b']);
-          const executionResults = executeParsedCommands(commandsToExecute, [lib]);
+          const executionResults = executeParsedCommands(commandsToExecute, [mockLib]);
           expect(executionResults).toHaveLength(1);
           const result = executionResults[0];
           expect(result.error).toBeUndefined();

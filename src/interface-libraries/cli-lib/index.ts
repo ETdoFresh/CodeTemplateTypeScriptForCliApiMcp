@@ -1,327 +1,133 @@
-// Import necessary components from the shared module
-import { ZodFunction } from 'zod';
-import {
-    Command,
-    processArgs,
-    executeParsedCommands,
-    isDefinedFunction
-} from './shared.js';
-// Update import path to point to zod-function-utils
-import { DefinedFunctionModule, DefinedFunction, DefineObjectFunction, DefinedObjectFunction } from '../../utils/zod-function-utils.js';
-import yargs, { Arguments } from 'yargs';
-import { hideBin } from 'yargs/helpers';
-import { z, ZodObject, ZodTypeAny, ZodTuple } from 'zod';
-
-// Helper to check if a function was defined with DefineObjectFunction
-function isObjectFunction(func: any): func is DefinedObjectFunction<any> {
-    // Check if func._def exists and has the argsSchema property
-    return typeof func === 'function' && func._def && func._def.hasOwnProperty('argsSchema'); 
-}
-
-// Helper to convert Zod schema type to yargs option type
-function zodTypeToYargsType(zodType: ZodTypeAny): 'string' | 'number' | 'boolean' | 'array' | undefined {
-    if (zodType instanceof z.ZodString) return 'string';
-    if (zodType instanceof z.ZodNumber) return 'number';
-    if (zodType instanceof z.ZodBoolean) return 'boolean';
-    if (zodType instanceof z.ZodArray) return 'array';
-    if (zodType instanceof z.ZodEnum) return 'string'; // Enums are treated as strings
-    if (zodType instanceof z.ZodOptional || zodType instanceof z.ZodDefault) {
-        // Look inside optional/default wrappers
-        return zodTypeToYargsType(zodType._def.innerType);
-    }
-    // Add more mappings if needed (e.g., for dates)
-    console.warn(`[yargs-setup] Unsupported Zod type for yargs conversion: ${zodType.constructor.name}. Treating as string.`);
-    return 'string'; // Default or fallback type
-}
+import { FunctionDefinition, ArgumentDefinition } from '../../system/command-types.js';
+import { parseCommandString } from '../../system/command-parser/string-parser.js';
+import { parseFunctionArguments } from '../../system/command-parser/function-parser.js';
+import { convertArgumentInstances } from '../../system/command-parser/argument-converter.js';
+import { validateArguments } from '../../system/command-parser/argument-validator.js';
+// import { formatValidationErrors } from '../../utils/error-formatting.js'; // This doesn't exist yet
 
 // --- CLI Entry Point ---
-export const runCli = async (libraries: DefinedFunctionModule[]) => {
-    // --- Argument Pre-processing for Positional Object Arguments --- START
-    let args = hideBin(process.argv);
-    const commandName = args[0];
-    const potentialCommand = libraries
-        .flatMap(lib => Object.entries(lib))
-        .find(([name, func]) => name === commandName && isObjectFunction(func));
+export const runCli = async (libraries: FunctionDefinition[]) => {
+    const rawArgs = process.argv.slice(2); // Get args after node executable and script path
 
-    if (potentialCommand) {
-        const [_, func] = potentialCommand;
-        const funcDef = (func as DefinedObjectFunction<any>)._def;
-        const argsSchema = funcDef?.argsSchema;
-
-        if (argsSchema instanceof ZodObject) {
-            // Determine the order of arguments to check for positional values
-            const positionalCheckOrder = funcDef.positionalArgsOrder || [];
-            let fallbackRequiredStringArgs: string[] = [];
-
-            // If no explicit order, determine fallback: required string args from schema
-            if (positionalCheckOrder.length === 0) {
-                Object.entries(argsSchema.shape).forEach(([name, type]) => {
-                    const zodType = type as ZodTypeAny;
-                    const isOptional = zodType.isOptional() || zodType._def.typeName === 'ZodDefault';
-                    const isString = zodTypeToYargsType(zodType) === 'string';
-                    if (!isOptional && isString) {
-                        fallbackRequiredStringArgs.push(name);
-                    }
-                });
-            }
-
-            // Use explicit order if available, otherwise fallback
-            const argsToMapPositionally = positionalCheckOrder.length > 0 
-                ? positionalCheckOrder 
-                : fallbackRequiredStringArgs;
-
-            let currentArgIndex = 1; // Start checking args after the command name
-            let positionalMapIndex = 0;
-
-            // Iterate through args, inserting flags for positional values based on determined order
-            while (positionalMapIndex < argsToMapPositionally.length && currentArgIndex < args.length) {
-                const currentArgValue = args[currentArgIndex];
-                if (currentArgValue && !currentArgValue.startsWith('-')) { // Check if it exists and is not a flag
-                    // Found a positional argument, map it to the next required string arg
-                    const argNameToInsert = argsToMapPositionally[positionalMapIndex];
-                    args.splice(currentArgIndex, 0, `--${argNameToInsert}`);
-                    positionalMapIndex++;
-                    currentArgIndex += 2; // Skip the inserted flag and the value itself
-                } else {
-                    // Found a flag or end of args, skip potential flag value
-                    // Check if next arg exists and doesn't start with '-' to determine if it's a value
-                    currentArgIndex += (args[currentArgIndex + 1] && !args[currentArgIndex + 1].startsWith('-')) ? 2 : 1;
-                }
-            }
-        }
+    if (rawArgs.length === 0) {
+        console.error("Error: No command specified.");
+        // TODO: Implement a proper help message display here, maybe list available commands?
+        console.error("\nUsage: <command> [arguments...]");
+        process.exit(1);
     }
-    // --- Argument Pre-processing --- END
 
-    const cli = yargs(args); // Use the potentially modified args array
+    // Combine args into a single string for the string parser
+    const commandString = rawArgs.join(' ');
 
-    libraries.forEach(library => {
-        Object.entries(library).forEach(([commandName, func]) => {
-            if (isObjectFunction(func)) {
-                const commandDef = func._def;
-                const argsSchema = commandDef.argsSchema;
-                
-                cli.command(
-                    commandName, // Use just the command name
-                    commandDef.description || `Executes the ${commandName} command.`, 
-                    (yargsInstance) => {
-                        // Define ALL args from Zod schema as options
-                        Object.entries(argsSchema.shape).forEach(([optionName, zodTypeUntyped]) => {
-                            const zodType = zodTypeUntyped as ZodTypeAny;
-                            const isOptional = zodType.isOptional() || zodType._def.typeName === 'ZodDefault';
-                            
-                            // Yargs automatically handles kebab-case for argv keys like noGitignore
-                            yargsInstance.option(optionName, {
-                                type: zodTypeToYargsType(zodType),
-                                describe: zodType.description || `Argument for ${optionName}`, 
-                                demandOption: !isOptional, 
-                                default: zodType._def.typeName === 'ZodDefault' ? zodType._def.defaultValue() : undefined,
-                                // Consider adding aliases if desired (e.g., alias: 'o')
-                            });
-                        });
-                        return yargsInstance;
-                    },
-                    async (argv) => {
-                        try {
-                            const functionArgs: Record<string, unknown> = {};
-                            // Collect all args provided by yargs
-                            Object.keys(argsSchema.shape).forEach(key => {
-                                if (argv.hasOwnProperty(key)) {
-                                     functionArgs[key] = argv[key];
-                                }
-                            });
-                            // Zod validation remains important
-                            const validatedArgs = argsSchema.parse(functionArgs);
-                            
-                            // Call the implemented function directly with the validated arguments object
-                            const result = await func(validatedArgs);
+    // 1. Parse the raw command string into positional and named args
+    const parsedArgs = parseCommandString(commandString);
 
-                            // Print result using process.stdout.write
-                            if (result !== undefined) {
-                                if (typeof result === 'object' && result !== null) {
-                                    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-                                } else {
-                                    process.stdout.write(String(result) + '\n');
-                                }
-                            }
-                        } catch (error: any) {
-                            // Rethrow to let the .fail handler manage output
-                            throw error;
-                        }
-                    }
-                );
-            } else if (isDefinedFunction(func)) {
-                const commandDef = func._def;
-                const argTupleSchema = commandDef.args as z.ZodTuple<any, any>;
-                const fixedArgsSchemas = argTupleSchema._def.items || [];
-                const restArgSchema = argTupleSchema._def.rest;
+    // The first positional arg is the command name
+    const commandName = parsedArgs.positionalArgs[0];
+    const actualPositionalArgs = parsedArgs.positionalArgs.slice(1); // Remove command name for function parsing
+    const actualNamedArgs = parsedArgs.namedArgs;
 
-                // Construct the command string for yargs signature
-                let commandString = commandName;
-                const positionalArgDefs: { name: string; describe: string; type: 'string' | 'number' | 'boolean' | 'array'; isOptional: boolean; isRest: boolean }[] = [];
+    // Create a modified ParsedCommand object without the command name in positionalArgs
+    const argsForFunctionParser = {
+        positionalArgs: actualPositionalArgs,
+        namedArgs: actualNamedArgs
+    };
 
-                fixedArgsSchemas.forEach((itemSchema: z.ZodTypeAny, index: number) => {
-                    const name = itemSchema.description?.replace(/\s+/g, '') || `arg${index}`; // Use description for name, remove spaces
-                    const isOptional = itemSchema.isOptional();
-                    const yargsType = zodTypeToYargsType(itemSchema) || 'string'; // Default to string
-                    commandString += isOptional ? ` [${name}]` : ` <${name}>`;
-                    positionalArgDefs.push({ name, describe: itemSchema.description || `Argument ${index + 1}`, type: yargsType, isOptional, isRest: false });
-                });
 
-                if (restArgSchema) {
-                    const name = restArgSchema.description?.replace(/\s+/g, '') || 'restArgs'; // Use description for name, remove spaces
-                    const yargsType = zodTypeToYargsType(restArgSchema) || 'string';
-                    commandString += ` [${name}...]`; // Yargs syntax for rest args
-                    positionalArgDefs.push({ name, describe: restArgSchema.description || `Additional arguments`, type: yargsType, isOptional: true, isRest: true }); // Rest are always optional array
-                }
+    // 2. Find the command definition
+    const funcDef = libraries.find(f => f.name === commandName); // Find by name
 
-                cli.command(
-                    commandString, // Dynamic command signature
-                    commandDef.description || `Executes the ${commandName} command with positional args.`,
-                    (yargsInstance) => {
-                        // Define positional arguments using the collected definitions
-                        positionalArgDefs.forEach(argDef => {
-                            if (!argDef.isRest) {
-                                yargsInstance.positional(argDef.name, {
-                                    describe: argDef.describe,
-                                    type: argDef.type === 'array' ? 'string' : argDef.type,
-                                    // demandOption is handled by <arg> vs [arg] in command string
-                                    // default: // Handle defaults if needed from ZodDefault
-                                });
-                            }
-                            // No explicit definition needed for rest args in yargsInstance.positional
-                            // if the `...` syntax is used in the command string.
-                        });
-                        return yargsInstance;
-                    },
-                    async (argv) => {
-                        try {
-                            // --- Argument Extraction and Validation ---
-                            const commandArgv = argv as Arguments;
-                            // We will extract args directly from commandArgv[argName]
-                            // const positionalValues = commandArgv._ ? commandArgv._.slice(1) : []; // No longer needed
+    if (!funcDef) {
+        console.error(`Error: Command not found: ${commandName}`);
+        // TODO: Suggest similar commands? List available commands?
+        process.exit(1);
+    }
 
-                            const finalCallArgs: any[] = [];
-                            // let positionalIndex = 0; // No longer needed
+    // 3. Parse function arguments based on the definition
+    // Pass the modified parsedArgs (without command name) and the function definition
+    const funcArgParseResult = parseFunctionArguments(argsForFunctionParser, funcDef);
+    if (funcArgParseResult.errors.length > 0) {
+        console.error(`Error parsing arguments for command "${commandName}":`);
+        funcArgParseResult.errors.forEach(err => console.error(`  - ${err}`));
+        process.exit(1);
+    }
 
-                            // 1. Process Fixed Args (Extract directly from argv[argName])
-                            for (let i = 0; i < fixedArgsSchemas.length; i++) {
-                                const schema = fixedArgsSchemas[i];
-                                const argDef = positionalArgDefs[i];
-                                const argName = argDef?.name; // Get the name used to define the positional arg
+    // Prepare definitions map for converter and validator
+    const argDefsMap = new Map<string, ArgumentDefinition>();
+    funcDef.arguments.forEach(def => argDefsMap.set(def.name, def));
+    // Also add rest argument definition if it exists
+    if (funcDef.restArgument) {
+        argDefsMap.set(funcDef.restArgument.name, funcDef.restArgument);
+    }
 
-                                if (!argName) {
-                                    // Should not happen if positionalArgDefs is built correctly
-                                    throw new Error(`Internal error: Could not determine argument name for schema at index ${i}`);
-                                }
 
-                                const isOptional = schema.isOptional() || schema instanceof z.ZodDefault;
-                                const providedValue = commandArgv[argName];
-
-                                if (providedValue === undefined || providedValue === null) {
-                                    // If argument is missing from argv
-                                    if (schema instanceof z.ZodDefault) {
-                                        finalCallArgs.push(schema._def.defaultValue());
-                                    } else if (isOptional) {
-                                        finalCallArgs.push(undefined);
-                                    } else {
-                                        throw new Error(`Missing required argument: ${argDef.describe}`); // Use description for error
-                                    }
-                                } else {
-                                    // Argument provided, parse it
-                                    try {
-                                        // Pass the value from argv directly to Zod parse
-                                        const parsedValue = schema.parse(providedValue);
-                                        finalCallArgs.push(parsedValue);
-                                    } catch (parseError) {
-                                        if (parseError instanceof z.ZodError) {
-                                            // Use description in error message
-                                            throw new Error(`Invalid argument '${providedValue}' for ${argDef.describe}: ${parseError.errors[0].message}`);
-                                        }
-                                        throw parseError;
-                                    }
-                                    // positionalIndex++; // No longer needed
-                                }
-                            }
-
-                            // 2. Process Rest Args (Still extract from named property in argv)
-                            if (restArgSchema) {
-                                const restArgDef = positionalArgDefs.find(p => p.isRest);
-                                const restArgName = restArgDef?.name;
-
-                                if (restArgName && commandArgv[restArgName] !== undefined) {
-                                    const restValuesRaw = commandArgv[restArgName];
-                                    const restValuesArray = Array.isArray(restValuesRaw) ? restValuesRaw : [restValuesRaw];
-                                    const restArraySchema = z.array(restArgSchema);
-                                    try {
-                                        const parsedRestArgs = restArraySchema.parse(restValuesArray);
-                                        finalCallArgs.push(...parsedRestArgs);
-                                    } catch (parseError) {
-                                        if (parseError instanceof z.ZodError) {
-                                            const firstError = parseError.errors[0];
-                                            const errorPathIndex = firstError.path[0] as number;
-                                            const errorValue = restValuesArray[errorPathIndex];
-                                            // Use description for error message
-                                            throw new Error(`Invalid value for ${restArgDef?.describe || 'additional arguments'} #${errorPathIndex + 1} ('${errorValue}'): ${firstError.message}`);
-                                        }
-                                        throw parseError;
-                                    }
-                                } else {
-                                     // No rest args provided - this is fine
-                                }
-                            } // No need for the `else if (positionalIndex < positionalValues.length)` check anymore
-
-                            // --- Execution ---
-                             const returnsPromise = commandDef.returns instanceof z.ZodPromise;
-
-                             // ADD DEBUG LOG HERE - REMOVE THIS
-                             // console.error("[DEBUG] About to call func with args:", finalCallArgs);
-
-                             const result = returnsPromise ? await func(...finalCallArgs) : func(...finalCallArgs);
-
-                             // Restore standard write
-                             if (result !== undefined) {
-                                if (typeof result === 'object' && result !== null) {
-                                    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-                                } else {
-                                    process.stdout.write(String(result) + '\n');
-                                }
-                             }
-
-                        } catch (error: any) {
-                            // console.error(`[DEBUG CLI Positional] Error caught in handler:`, error);
-                            throw error;
-                        }
-                    }
-                );
-            }
+    // 4. Convert argument instances to their target types
+    const conversionResult = convertArgumentInstances(
+        funcArgParseResult.argumentInstances,
+        funcArgParseResult.restArgumentInstance,
+        argDefsMap, // Pass the map
+        funcDef.restArgument || null // Pass the rest definition or null
+    );
+    if (conversionResult.errors.length > 0) {
+        console.error(`Error converting arguments for command "${commandName}":`);
+        conversionResult.errors.forEach(err => {
+            console.error(`  - Argument "${err.argumentName}": ${err.message} (value: ${JSON.stringify(err.rawValue)})`);
         });
-    });
+        process.exit(1);
+    }
 
-    cli
-        .demandCommand(1, 'You must specify a command.')
-        .help()
-        .alias('h', 'help')
-        .strict() // Important: Fail on unknown options
-        .wrap(cli.terminalWidth())
-        .fail((msg, err, yargs) => {
-             if (err) {
-                // If it's a ZodError from our handler, format it nicely
-                if (err instanceof z.ZodError) {
-                    console.error("Argument Validation Error:");
-                    err.errors.forEach(e => {
-                         console.error(`  - ${e.path.join('.') || 'Argument'}: ${e.message}`);
-                    });
-                } else {
-                    console.error("Error:", err.message);
-                }
-                process.exit(1);
-             } else if (msg) {
-                console.error("Error:", msg);
-                console.error("\nUsage:");
-                yargs.showHelp();
-                process.exit(1);
+    // 5. Validate arguments (e.g., check for missing required args)
+    const validationErrors = validateArguments(argDefsMap, conversionResult.convertedArguments);
+    if (validationErrors.length > 0) {
+        console.error(`Error validating arguments for command "${commandName}":`);
+        validationErrors.forEach(err => console.error(`  - ${err}`));
+        process.exit(1);
+    }
+
+    // 6. Execute the command
+    try {
+        // Prepare arguments in the order expected by the function definition
+        const finalArgs: any[] = [];
+        for (const argDef of funcDef.arguments) {
+            let value = conversionResult.convertedArguments[argDef.name];
+            // Use default value if the argument wasn't provided and a default exists
+            if (value === undefined && argDef.defaultValue !== undefined) {
+                value = argDef.defaultValue;
+            }
+            finalArgs.push(value);
+        }
+
+        // Add rest argument values if the definition exists and values were converted
+        if (funcDef.restArgument) {
+            const restValue = conversionResult.convertedArguments[funcDef.restArgument.name];
+            if (Array.isArray(restValue)) {
+                 // Spread the rest arguments at the end
+                finalArgs.push(...restValue);
+            } else if (restValue !== undefined) {
+                // Handle non-array rest value? Log warning or error? For now, push it.
+                console.warn(`Warning: Rest argument "${funcDef.restArgument.name}" converted to non-array value: ${restValue}`);
+                finalArgs.push(restValue);
+            }
+            // If restValue is undefined, nothing is added, which is correct.
+        }
+
+        // Execute the function with the prepared arguments
+        const result = await funcDef.function(...finalArgs);
+
+        // Print result to stdout
+        if (result !== undefined && result !== null) {
+             if (typeof result === 'object') {
+                 // Pretty print objects/arrays
+                 process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+             } else {
+                 process.stdout.write(String(result) + '\n');
              }
-        })
-        // console.log(">>> Yargs parsing starting..."); // Remove diagnostic log
-        await cli.parse();
+        }
+        // Success, exit code 0 (implicitly)
+    } catch (executionError: any) {
+        console.error(`Error executing command "${commandName}":`);
+        console.error(executionError instanceof Error ? executionError.message : String(executionError));
+        // Optionally print stack trace for debugging: console.error(executionError.stack);
+        process.exit(1);
+    }
 };

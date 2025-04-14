@@ -1,14 +1,19 @@
-import { z } from 'zod';
+import { FunctionDefinition, ArgumentDefinition } from '../../system/command-types';
 import * as path from 'path';
-import { DefineObjectFunction } from '../../utils/zod-function-utils.js';
 import { spawn } from 'child_process'; // Use direct import for spawn
 
 /**
  * Runs the MCP Inspector against this CLI.
  */
-export const inspect = DefineObjectFunction({
+export const inspect: FunctionDefinition = {
+  name: 'inspect',
   description: 'Runs the @modelcontextprotocol/inspector against this CLI application.',
-  argsSchema: z.object({}), // No arguments needed for this command
+  arguments: [],
+  returnType: {
+    name: 'status',
+    type: 'string', // Placeholder for Promise<void>
+    description: 'Indicates completion status (Promise resolves on success)',
+  },
   function: async () => {
     const projectRoot = process.cwd();
     // Construct the absolute path to the CLI entry point
@@ -47,4 +52,4 @@ export const inspect = DefineObjectFunction({
       throw new Error(`Failed to execute inspector: ${error.message}`);
     }
   }
-}); 
+};

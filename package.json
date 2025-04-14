@@ -26,21 +26,15 @@
     "istextorbinary": "^9.5.0",
     "minimatch": "^10.0.1",
     "strip-comments": "^2.0.1",
-    "xmlbuilder": "^15.1.1",
-    "yargs": "^17.7.2",
-    "zod": "^3.24.1",
-    "zod-to-json-schema": "^3.24.1"
+    "xmlbuilder": "^15.1.1"
   },
   "devDependencies": {
     "@types/istextorbinary": "^2.3.4",
     "@types/minimatch": "^5.1.2",
     "@types/node": "^20.11.0",
     "@types/strip-comments": "^2.0.4",
-    "@types/yargs": "^17.0.33",
-    "@types/yargs-parser": "^21.0.3",
     "esbuild": "^0.25.2",
     "typescript": "^5.3.3",
-    "vitest": "^3.1.1",
-    "yargs-parser": "^21.1.1"
+    "vitest": "^3.1.1"
   }
 }
