@@ -42,6 +42,9 @@ export const runCli = async (libraries: FunctionDefinition[]) => {
         // TODO: Suggest similar commands? List available commands?
         process.exit(1);
     }
+    // --- DEBUGGING ---
+    // console.log(`DEBUG: Found funcDef for command '${commandName}': ${funcDef.name}`); // REMOVE THIS BLOCK
+    // --- END DEBUGGING ---
 
     // 3. Parse function arguments based on the definition
     // Pass the modified parsedArgs (without command name) and the function definition

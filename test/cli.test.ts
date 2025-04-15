@@ -62,7 +62,7 @@ describe('CLI Tests', () => {
          it('should handle missing required args for subtract', () => {
             const { stdout, stderr, status } = runCliCommand(['subtract']);
              expect(status).not.toBe(0);
-             expect(stderr).toContain('Missing required argument: initialValue');
+             expect(stderr).toContain('Missing required argument: \'initialValue\'');
         });
     });
 
@@ -94,80 +94,76 @@ describe('CLI Tests', () => {
             const { stdout, stderr, status } = runCliCommand(['helloString', '--name', 'Alice']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, Alice!\"'); // Assuming JSON string output
+            expect(stdout.trim()).toBe('Hello, Alice!');
         });
 
          it('helloString: should greet with a positional string', () => {
             const { stdout, stderr, status } = runCliCommand(['helloString', 'Bob']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, Bob!\"');
+            expect(stdout.trim()).toBe('Hello, Bob!');
         });
 
          it('helloNumber: should greet with a number', () => {
             const { stdout, stderr, status } = runCliCommand(['helloNumber', '--num', '42']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, 42!\"');
+            expect(stdout.trim()).toBe('Hello, 42!');
         });
 
          it('helloBoolean: should greet with true', () => {
             const { stdout, stderr, status } = runCliCommand(['helloBoolean', '--bool', 'true']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, true!\"');
+            expect(stdout.trim()).toBe('Hello, true!');
         });
 
         it('helloBoolean: should greet with false', () => {
             const { stdout, stderr, status } = runCliCommand(['helloBoolean', '--bool', 'false']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, false!\"');
+            expect(stdout.trim()).toBe('Hello, false!');
         });
 
          it('helloStringArray: should greet with a string array', () => {
-            // Note: Array input via CLI might be tricky. This assumes space-separated for positional or repeated flags.
-            // Adjust based on how your parser actually handles array flags/positionals.
-            // Using repeated named args as the parser likely handles this best.
             const { stdout, stderr, status } = runCliCommand(['helloStringArray', '--arr', 'apple', '--arr', 'banana']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, apple, banana!\"');
+            expect(stdout.trim()).toBe('Hello, apple, banana!');
         });
 
         it('helloNumberArray: should greet with a number array', () => {
             const { stdout, stderr, status } = runCliCommand(['helloNumberArray', '--arr', '1', '--arr', '2']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, 1, 2!\"');
+            expect(stdout.trim()).toBe('Hello, 1, 2!');
         });
 
         it('helloBooleanArray: should greet with a boolean array', () => {
              const { stdout, stderr, status } = runCliCommand(['helloBooleanArray', '--arr', 'true', '--arr', 'false']);
              expect(status).toBe(0);
              expect(stderr).toBe('');
-             expect(stdout.trim()).toBe('\"Hello, true, false!\"');
+             expect(stdout.trim()).toBe('Hello, true, false!');
         });
 
          it('helloStringArgs: should greet with rest string args', () => {
             const { stdout, stderr, status } = runCliCommand(['helloStringArgs', 'one', 'two', 'three']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            expect(stdout.trim()).toBe('\"Hello, one, two, three!\"');
+            expect(stdout.trim()).toBe('Hello, one, two, three!');
         });
 
          it('helloStringRestNumbersArgs: should greet with prefix and rest numbers', () => {
             const { stdout, stderr, status } = runCliCommand(['helloStringRestNumbersArgs', '--prefix', 'Count', '10', '20', '30']);
             expect(status).toBe(0);
             expect(stderr).toBe('');
-            // Output format adjusted based on function implementation
-            expect(stdout.trim()).toBe('\"Prefix: Count, Numbers: [10, 20, 30]\"');
+            expect(stdout.trim()).toBe('Prefix: Count, Numbers: [10, 20, 30]');
         });
 
         it('helloStringRestNumbersArgs: should handle missing required prefix', () => {
-            const { stdout, stderr, status } = runCliCommand(['helloStringRestNumbersArgs', '10', '20']);
+            const { stdout, stderr, status } = runCliCommand(['helloStringRestNumbersArgs']);
             expect(status).not.toBe(0);
-            expect(stderr).toContain('Missing required argument: prefix');
+            expect(stderr).toContain('Missing required argument: \'prefix\'');
          });
     });
 
