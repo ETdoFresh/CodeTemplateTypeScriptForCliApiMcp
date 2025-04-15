@@ -6,11 +6,10 @@ import { z, ZodTypeAny, ZodError, ZodIssue } from 'zod'; // Keep z, ZodError, Zo
 
 // Import new system components
 import {
-  FunctionDefinition,
+  LibraryDefinition,
   ArgumentDefinition,
   ArgumentInstance,
   RestArgumentInstance,
-  ArgumentType // Import ArgumentType if needed for mapping
 } from '../../system/command-types.js';
 import { convertArgumentInstances } from '../../system/command-parser/argument-converter.js'; // Removed ArgumentConversionError import
 import { validateArguments } from '../../system/command-parser/argument-validator.js'; // Removed formatArgumentErrors import
@@ -99,7 +98,7 @@ function formatErrorForMcp(toolName: string, error: any): CallToolResult {
 // --- Server Setup and Dynamic Registration ---
 
 // Update function signature to use FunctionDefinition[]
-export function runMcp(libraries: FunctionDefinition[]) {
+export function runMcp(libraries: LibraryDefinition[]) {
 
   const server = new McpServer({
     name: "mcp-dynamic-lib-server",
@@ -110,21 +109,22 @@ export function runMcp(libraries: FunctionDefinition[]) {
   const registeredToolNames: string[] = []; // Array to track registered tools
 
   // Iterate through each FunctionDefinition provided
-  for (const funcDef of libraries) {
-    try {
-        // --- Build the Input Object Schema for MCP from the FunctionDefinition ---
-        const inputShape: Record<string, ZodTypeAny> = {};
+  for (const library of libraries) {
+    for (const funcDef of library.functions) {
+      try {
+          // --- Build the Input Object Schema for MCP from the FunctionDefinition ---
+          const inputShape: Record<string, ZodTypeAny> = {};
 
-        // Process defined arguments
-        funcDef.arguments.forEach((argDef) => {
-            if (inputShape[argDef.name]) {
-                console.warn(`[${funcDef.name}] Duplicate argument name '${argDef.name}'. Overwriting schema definition.`);
-            }
-            inputShape[argDef.name] = mapArgTypeToZod(argDef);
-        });
+          // Process defined arguments
+          funcDef.arguments.forEach((argDef) => {
+              if (inputShape[argDef.name]) {
+                  console.warn(`[${funcDef.name}] Duplicate argument name '${argDef.name}'. Overwriting schema definition.`);
+              }
+              inputShape[argDef.name] = mapArgTypeToZod(argDef);
+          });
 
-        // Process rest argument
-        if (funcDef.restArgument) {
+          // Process rest argument
+          if (funcDef.restArgument) {
             const restArgDef = funcDef.restArgument;
             if (inputShape[restArgDef.name]) {
                 console.warn(`[${funcDef.name}] Duplicate name '${restArgDef.name}' for rest parameter. Overwriting schema definition.`);
@@ -247,7 +247,8 @@ export function runMcp(libraries: FunctionDefinition[]) {
          console.error(`Failed to register tool '${funcDef?.name || 'unknown'}': ${registrationError.message}`);
          // Optionally continue to next function definition or re-throw
     }
-  }
+  } // <--- End funcDef loop
+} // <--- MISSING: End library loop. Added this closing brace.
 
   console.error("Tool registration complete.");
 

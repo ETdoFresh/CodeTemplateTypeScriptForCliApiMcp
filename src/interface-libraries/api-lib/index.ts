@@ -10,6 +10,7 @@ import { convertArgumentInstances } from '../../system/command-parser/argument-c
 import { validateArguments } from '../../system/command-parser/argument-validator.js';
 import type {
     FunctionDefinition,
+    LibraryDefinition,
     ArgumentDefinition,
     ArgumentInstance,
     RestArgumentInstance,
@@ -30,7 +31,7 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
 async function handleRequest(
     req: IncomingMessage,
     res: ServerResponse,
-    libraries: FunctionDefinition[][] // Array of modules, each containing FunctionDefinitions
+    libraries: LibraryDefinition[] // Array of modules, each containing FunctionDefinitions
 ) {
     const parsedUrl = url.parse(req.url || '', true);
     const pathname = parsedUrl.pathname || '';
@@ -58,7 +59,7 @@ async function handleRequest(
     // --- Find Command Definition ---
     let funcDef: FunctionDefinition | null = null;
     for (const library of libraries) { // Iterate through modules
-        const found = library.find(def => def.name === commandName);
+        const found = library.functions.find(def => def.name === commandName);
         if (found) {
             funcDef = found;
             break;
@@ -228,7 +229,7 @@ async function handleRequest(
 
 export function runApi(
     // UPDATE: Type to use FunctionDefinition[]
-    libraries: FunctionDefinition[][], // Assuming libraries is an array of modules
+    libraries: LibraryDefinition[], // Assuming libraries is an array of modules
     port: number = 3000
 ) {
     // Pass the async handler function to createServer
@@ -240,7 +241,7 @@ export function runApi(
 
         // Iterate through libraries (modules) and FunctionDefinitions
         libraries.forEach(library => {
-            library.forEach(funcDef => { // Iterate through definitions in the module
+            library.functions.forEach(funcDef => { // Correct: Iterate through library.functions
                 const commandName = funcDef.name;
                 let queryStringExample = '';
                 const paramDetails: string[] = [];

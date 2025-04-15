@@ -4,6 +4,7 @@ import process from 'process'; // Import process for argv
 // Removed DefinedFunctionModule, DefinedFunction from zod-function-utils
 import {
     FunctionDefinition,
+    LibraryDefinition,
     ArgumentDefinition,
     ArgumentInstance,
     RestArgumentInstance,
@@ -26,7 +27,7 @@ function hasOwnProperty<X extends {}, Y extends PropertyKey>
 // Renamed function to runJson and adjusted signature
 // Make the function async to handle potential promises from commands
 export async function runJson(
-    libraries: FunctionDefinition[][], // Use FunctionDefinition[][] as library type
+    libraries: LibraryDefinition[], // Use FunctionDefinition[][] as library type
 ): Promise<void> { // Return Promise<void>
     // REVERT: Read process.argv directly and filter --json
     const rawArgs = process.argv.slice(2).filter(arg => arg !== '--json');
@@ -54,8 +55,8 @@ export async function runJson(
     try {
         // Find the FunctionDefinition
         for (const library of libraries) {
-            // Assuming libraries is now FunctionDefinition[][]
-            const foundFunc = library.find(f => f.name === commandName);
+            // Correct: Search within library.functions
+            const foundFunc = library.functions.find(f => f.name === commandName);
             if (foundFunc) {
                 funcDef = foundFunc;
                 break;

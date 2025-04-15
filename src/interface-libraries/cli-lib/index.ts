@@ -1,4 +1,4 @@
-import { FunctionDefinition, ArgumentDefinition } from '../../system/command-types.js';
+import { FunctionDefinition, ArgumentDefinition, LibraryDefinition } from '../../system/command-types.js';
 import { parseCommandString } from '../../system/command-parser/string-parser.js';
 import { parseFunctionArguments } from '../../system/command-parser/function-parser.js';
 import { convertArgumentInstances } from '../../system/command-parser/argument-converter.js';
@@ -6,7 +6,7 @@ import { validateArguments } from '../../system/command-parser/argument-validato
 // import { formatValidationErrors } from '../../utils/error-formatting.js'; // This doesn't exist yet
 
 // --- CLI Entry Point ---
-export const runCli = async (libraries: FunctionDefinition[]) => {
+export const runCli = async (libraries: LibraryDefinition[]) => {
     const rawArgs = process.argv.slice(2); // Get args after node executable and script path
 
     if (rawArgs.length === 0) {
@@ -35,7 +35,13 @@ export const runCli = async (libraries: FunctionDefinition[]) => {
 
 
     // 2. Find the command definition
-    const funcDef = libraries.find(f => f.name === commandName); // Find by name
+    let funcDef: FunctionDefinition | undefined; // Declare funcDef variable
+    for (const library of libraries) {
+        funcDef = library.functions.find(f => f.name === commandName); // Find by name within library functions
+        if (funcDef) {
+            break; // Stop searching once found
+        }
+    }
 
     if (!funcDef) {
         console.error(`Error: Command not found: ${commandName}`);
@@ -43,7 +49,7 @@ export const runCli = async (libraries: FunctionDefinition[]) => {
         process.exit(1);
     }
     // --- DEBUGGING ---
-    // console.log(`DEBUG: Found funcDef for command '${commandName}': ${funcDef.name}`); // REMOVE THIS BLOCK
+    // REMOVE THIS BLOCK - Ensure the debugging line is removed or commented out
     // --- END DEBUGGING ---
 
     // 3. Parse function arguments based on the definition

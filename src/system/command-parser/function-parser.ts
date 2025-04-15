@@ -52,37 +52,35 @@ export function parseFunctionArguments(
   });
 
   for (const name in parsedArgs.namedArgs) {
-    if (parsedArgs.namedArgs.hasOwnProperty(name)) {
-      const value = parsedArgs.namedArgs[name];
-      const argDef = namedArgDefs.get(name);
+    const value = parsedArgs.namedArgs[name];
+    const argDef = namedArgDefs.get(name);
 
-      if (argDef) {
-        // Check if this argument definition has already been fulfilled (e.g., by a positional arg)
-        if (fulfilledArgs.get(argDef)) {
-            errors.push(`Argument '${argDef.name}' provided more than once (likely positional and named).`);
-            continue; // Skip this named arg if already fulfilled
-        }
-
-        // Check for multi-value mismatch: Array value provided for non-array definition
-        // We infer array definition if type ends with '[]'
-        const expectsArray = argDef.type.endsWith('[]');
-        if (Array.isArray(value) && !expectsArray) {
-          errors.push(`Named argument '${name}' was provided multiple times, but expected type '${argDef.type}' is not an array.`);
-          // Decide how to handle: take last? error out? For now, we error and don't create an instance.
-          continue; // Skip creating instance for this error case
-        }
-
-        // Create the instance by spreading the definition and adding the value
-        const instance: ArgumentInstance = {
-          ...argDef,
-          value: value, // Use the raw value(s) - type conversion happens later
-        };
-        argumentInstances.push(instance);
-        fulfilledArgs.set(argDef, true); // Mark as fulfilled
-      } else {
-        // Unknown named argument
-        errors.push(`Unknown named argument: --${name}`);
+    if (argDef) {
+      // Check if this argument definition has already been fulfilled (e.g., by a positional arg)
+      if (fulfilledArgs.get(argDef)) {
+          errors.push(`Argument '${argDef.name}' provided more than once (likely positional and named).`);
+          continue; // Skip this named arg if already fulfilled
       }
+
+      // Check for multi-value mismatch: Array value provided for non-array definition
+      // We infer array definition if type ends with '[]'
+      const expectsArray = argDef.type.endsWith('[]');
+      if (Array.isArray(value) && !expectsArray) {
+        errors.push(`Named argument '${name}' was provided multiple times, but expected type '${argDef.type}' is not an array.`);
+        // Decide how to handle: take last? error out? For now, we error and don't create an instance.
+        continue; // Skip creating instance for this error case
+      }
+
+      // Create the instance by spreading the definition and adding the value
+      const instance: ArgumentInstance = {
+        ...argDef,
+        value: value, // Use the raw value(s) - type conversion happens later
+      };
+      argumentInstances.push(instance);
+      fulfilledArgs.set(argDef, true); // Mark as fulfilled
+    } else {
+      // Unknown named argument
+      errors.push(`Unknown named argument: --${name}`);
     }
   }
 
@@ -148,8 +146,8 @@ export function parseFunctionArguments(
   // Check all original definitions
   funcDef.arguments.forEach(argDef => {
     // Check the map to see if it was fulfilled either positionally or by name
-    // Argument is required if optional is explicitly false or undefined/omitted
-    if (!argDef.optional && !argDef.defaultValue && !fulfilledArgs.get(argDef)) {
+    // Argument is required if optional is explicitly false or undefined/omitted, and no defaultValue
+    if (!argDef.optional && argDef.defaultValue === undefined && !fulfilledArgs.get(argDef)) {
       errors.push(`Missing required argument: '${argDef.name}'`);
     }
   });

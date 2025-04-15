@@ -27,6 +27,10 @@ export type FunctionDefinition = {
     function: (...args: any[]) => any; // The actual implementation
 };
 
+export type LibraryDefinition = {
+    functions: FunctionDefinition[];
+};
+
 // Instances are used when parsed from a command line and executed
 
 export type ArgumentInstance = ArgumentDefinition & {
