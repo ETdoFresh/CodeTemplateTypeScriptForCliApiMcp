@@ -1,4 +1,4 @@
-import { FunctionDefinition, ArgumentDefinition, RestArgumentDefinition } from '@system/command-types.js';
+import { FunctionDefinition, ArgumentDefinition, RestArgumentDefinition } from '../../../library-core/types';
 
 export const helloString: FunctionDefinition = {
   name: 'helloString',
@@ -28,7 +28,7 @@ export const helloBoolean: FunctionDefinition = {
   name: 'helloBoolean',
   description: 'Greets with the provided boolean',
   arguments: [
-    { name: 'bool', description: 'The boolean to echo', type: 'boolean' }
+    { name: 'bool', description: 'The boolean to echo', type: 'boolean', defaultValue: false }
   ],
   returnType: { name: 'greeting', description: 'The greeting with the boolean', type: 'string' },
   function: (bool: boolean) => {

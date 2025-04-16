@@ -182,9 +182,8 @@ export function runMcp(libraries: LibraryDefinition[]) {
                     argumentDefinitionsMap.set(funcDef.restArgument.name, funcDef.restArgument);
                 }
 
-                // 3. Convert Argument Instances
-                // Pass the map of definitions as the third argument
-                // Pass only regular instances as the first arg, and the rest definition as the 4th
+                // 3. Convert Argument Instances (REMOVED - Zod handles conversion for MCP)
+                /*
                 const conversionResult = convertArgumentInstances(
                     argumentInstances, // This array already only contains regular args based on line 153
                     restArgumentInstance ?? null,
@@ -197,29 +196,35 @@ export function runMcp(libraries: LibraryDefinition[]) {
                     console.error(`[${funcDef.name}] Argument conversion errors:`, formattedErrors);
                     return formatErrorForMcp(funcDef.name, formattedErrors);
                 }
+                */
 
-                // 4. Validate Arguments
-                // Validate arguments using the map of definitions and the map of converted values
+                // Create a map of arguments received from MCP/Zod
+                const receivedArgsMap: Record<string, any> = { ...parsedMcpInput };
+
+                // 4. Validate Arguments (Check for missing required args)
+                // Validate arguments using the map of definitions and the map of received values from Zod
                 const validationErrors = validateArguments(
                     argumentDefinitionsMap, // Pass the map here
-                    conversionResult.convertedArguments
+                    receivedArgsMap // Use the Zod-parsed map directly
                 );
                 if (validationErrors.length > 0) {
                     // Format validation errors
-                    // Use the validationErrors directly (they should be strings or have messages)
                     const formattedErrors = validationErrors;
                     console.error(`[${funcDef.name}] Argument validation errors:`, formattedErrors);
                     return formatErrorForMcp(funcDef.name, formattedErrors);
                 }
 
                 // 5. Prepare final arguments for the function call
-                // Reconstruct final arguments in the correct order from the converted values map
+                // Reconstruct final arguments in the correct order directly from the Zod-parsed input
                 const finalCallArgs: any[] = funcDef.arguments.map(argDef =>
-                    conversionResult.convertedArguments[argDef.name]
+                    // Use default from definition if Zod parsing resulted in undefined for an optional arg
+                    receivedArgsMap[argDef.name] === undefined && argDef.defaultValue !== undefined
+                        ? argDef.defaultValue 
+                        : receivedArgsMap[argDef.name]
                 );
                 if (funcDef.restArgument) {
-                    const restValue = conversionResult.convertedArguments[funcDef.restArgument.name];
-                    // Ensure restValue is an array before spreading
+                    const restValue = receivedArgsMap[funcDef.restArgument.name];
+                    // Ensure restValue is an array before spreading (Zod should ensure this if schema is correct)
                     if (Array.isArray(restValue)) {
                         finalCallArgs.push(...restValue);
                     } else if (restValue !== undefined && restValue !== null) {
