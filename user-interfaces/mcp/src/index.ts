@@ -131,8 +131,18 @@ export function runMcp(libraries: LibraryDefinition[]) {
             }
             // MCP expects rest args as an optional array in the input object
             // The base type for the array elements comes from restArgDef.type
-            const baseRestType = mapArgTypeToZod({ ...restArgDef, name: `${restArgDef.name}_element`, optional: false, defaultValue: undefined }); // Create a temporary non-optional base type for the array element
-            let mcpRestType = z.array(baseRestType).optional();
+            // FIX: Extract base type *before* calling mapArgTypeToZod
+            const baseTypeName = restArgDef.type.endsWith('[]') ? restArgDef.type.slice(0, -2) : restArgDef.type;
+            // Map the *base* type to Zod, ensuring it's not optional for the array element itself
+            const baseRestZodType = mapArgTypeToZod({ 
+                ...restArgDef, // Use description from original restArgDef
+                name: `${restArgDef.name}_element`, 
+                type: baseTypeName as any, // Use the extracted base type name
+                optional: false, // Elements themselves aren't optional
+                defaultValue: undefined // No default for array elements
+            }); 
+            let mcpRestType = z.array(baseRestZodType).optional();
+            // Re-apply description to the final array schema
             if (restArgDef.description) {
                 mcpRestType = mcpRestType.describe(restArgDef.description);
             }

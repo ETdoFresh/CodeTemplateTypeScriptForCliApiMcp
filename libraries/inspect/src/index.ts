@@ -17,7 +17,7 @@ export const inspect: FunctionDefinition = {
   function: async () => {
     const projectRoot = process.cwd();
     // Construct the absolute path to the CLI entry point
-    const cliPathRaw = path.join(projectRoot, 'dist', 'main.js');
+    const cliPathRaw = path.join(projectRoot, 'dist', 'index.js');
     // Replace single backslashes with double backslashes for robustness in shell commands
     const cliPath = cliPathRaw.replace(/\\/g, '\\\\');
     // Updated command based on user edit
