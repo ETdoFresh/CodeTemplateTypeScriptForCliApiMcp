@@ -34,26 +34,47 @@ export const packLocal: FunctionDefinition = {
     { name: 'noDefaultPatterns', type: 'boolean', description: 'Disable default ignore patterns.', optional: true, defaultValue: false },
   ],
   restArgument: undefined,
-  returnType: { name: 'status', type: 'string', description: 'Indicates completion status (Promise resolves on success)', optional: true },
-  function: async (optionsInput: any) => { // Keep original implementation
-    // Destructure outputDirectory along with other options
-    const { directory, outputDirectory, ...restOptions } = optionsInput;
+  returnType: { name: 'packedContent', type: 'string', description: 'The generated packed codebase content (if outputTarget is stdout)', optional: true },
+  function: async (
+    directory: string,
+    includePatterns?: string,
+    ignorePatterns?: string,
+    outputFormat?: string,
+    outputTarget?: string,
+    outputDirectory?: string,
+    removeComments?: boolean,
+    removeEmptyLines?: boolean,
+    fileSummary?: boolean,
+    directoryStructure?: boolean,
+    noGitignore?: boolean,
+    noDefaultPatterns?: boolean
+  ): Promise<string | void> => {
     try {
       const normalizedInputPath = normalizePathUri(directory);
-      // Normalize the output directory path as well
-      const normalizedOutputPath = normalizePathUri(outputDirectory || '.'); // Use default '.' if undefined
+      const normalizedOutputPath = normalizePathUri(outputDirectory || '.');
+      
       const options: PackCodebaseOptions = {
         directory: normalizedInputPath,
+        includePatterns: includePatterns,
+        ignorePatterns: ignorePatterns,
+        outputFormat: (outputFormat || 'xml') as 'xml' | 'md' | 'txt',
+        outputTarget: (outputTarget || 'stdout') as 'stdout' | 'file' | 'clipboard',
+        outputTargetDirectory: normalizedOutputPath,
+        removeComments: removeComments || false,
+        removeEmptyLines: removeEmptyLines || false,
+        fileSummary: fileSummary === undefined ? true : fileSummary,
+        directoryStructure: directoryStructure === undefined ? true : directoryStructure,
+        noGitignore: noGitignore || false,
+        noDefaultPatterns: noDefaultPatterns || false,
         sourceIdentifier: normalizedInputPath,
-        outputTargetDirectory: normalizedOutputPath, // Use the normalized output path
-        ...restOptions,
         github_repo: undefined,
         repoOwner: undefined,
         repoName: undefined,
       };
       console.error(`[packLocal] ABOUT TO CALL packInternal...`);
-      await packInternal(options);
+      const result = await packInternal(options);
       console.error(`[packLocal] SUCCESSFULLY RETURNED from packInternal.`);
+      return result;
     } catch (error: any) {
       console.error(`[packLocal] Error during packInternal call: ${error.message}`, error.stack);
       throw new Error(`Error packing local directory '${directory}': ${error.message}`);

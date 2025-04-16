@@ -13,9 +13,9 @@ import { generateDirectoryStructure, generateXmlOutput, generateMarkdownOutput, 
  * and outputting the result based on options.
  *
  * @param options The packing options.
- * @returns A promise resolving to void. Output is handled via stdout/file/clipboard.
+ * @returns A promise resolving to the packed content string if target is stdout, otherwise void.
  */
-export async function packInternal(options: PackCodebaseOptions): Promise<void> {
+export async function packInternal(options: PackCodebaseOptions): Promise<string | void> {
   console.log(">>> packInternal function entered.");
 
   // 1. Find files
@@ -175,8 +175,8 @@ export async function packInternal(options: PackCodebaseOptions): Promise<void> 
 
     case 'stdout':
     default:
-      // Use console.log instead of process.stdout.write for the final output
-      console.log(outputContent); 
+      // Return the content instead of logging
+      return outputContent;
       
       // Ensure a newline if stdout might be piped or used in scripts
       // (console.log usually adds one, but check just in case)
