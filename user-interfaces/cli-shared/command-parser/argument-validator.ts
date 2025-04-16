@@ -1,6 +1,6 @@
 // src/system/command-parser/argument-validator.ts
 
-import { ArgumentDefinition } from '../command-types';
+import { ArgumentDefinition } from '../../../library-core/types';
 import { ConvertedArgumentValue } from './argument-converter'; // Assuming ConvertedArgumentValue is exported
 
 /**

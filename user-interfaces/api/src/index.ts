@@ -6,8 +6,8 @@ import type { IncomingMessage, ServerResponse } from 'http';
 // import { DefinedFunctionModule, DefinedFunction } from '../../utils/zod-function-utils.js';
 
 // ADD: New system imports
-import { convertArgumentInstances } from '@system/command-parser/argument-converter.js';
-import { validateArguments } from '@system/command-parser/argument-validator.js';
+import { convertArgumentInstances } from 'user-interfaces/cli-shared/command-parser/argument-converter.js';
+import { validateArguments } from 'user-interfaces/cli-shared/command-parser/argument-validator.js';
 import type {
     FunctionDefinition,
     LibraryDefinition,

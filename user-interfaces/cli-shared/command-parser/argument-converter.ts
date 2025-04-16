@@ -7,7 +7,7 @@ import {
     RestArgumentInstance,
     // ConvertedArgumentValue, // Define locally
     // ConversionError, // Define locally
-} from '../command-types';
+} from '../../../library-core/types';
 
 // --- Locally Defined Types for Conversion ---
 

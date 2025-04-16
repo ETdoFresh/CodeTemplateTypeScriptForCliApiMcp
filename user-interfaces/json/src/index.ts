@@ -11,9 +11,9 @@ import {
     // Removed incorrect error type imports from command-types
 } from '@system/command-types.js'; // Import new types
 // Import locally defined types from converter if needed for clarity, or rely on inference
-import { ConversionResult, ConversionError, ConvertedArgumentValue } from '@system/command-parser/argument-converter.js';
-import { convertArgumentInstances } from '@system/command-parser/argument-converter.js';
-import { validateArguments } from '@system/command-parser/argument-validator.js';
+import { ConversionResult, ConversionError, ConvertedArgumentValue } from 'user-interfaces/cli-shared/command-parser/argument-converter.js';
+import { convertArgumentInstances } from 'user-interfaces/cli-shared/command-parser/argument-converter.js';
+import { validateArguments } from 'user-interfaces/cli-shared/command-parser/argument-validator.js';
 
 // Helper to check if a property exists on an object (using the local definition)
 function hasOwnProperty<X extends {}, Y extends PropertyKey>

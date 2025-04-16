@@ -4,7 +4,7 @@ import {
   FunctionDefinition,
   ArgumentInstance,
   RestArgumentInstance
-} from '../command-types';
+} from '../../../library-core/types';
 import { ParsedCommand } from './string-parser';
 
 /**

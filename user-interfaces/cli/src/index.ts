@@ -1,8 +1,8 @@
 import { FunctionDefinition, ArgumentDefinition, LibraryDefinition } from '@system/command-types.js';
-import { parseCommandString } from '@system/command-parser/string-parser.js';
-import { parseFunctionArguments } from '@system/command-parser/function-parser.js';
-import { convertArgumentInstances } from '@system/command-parser/argument-converter.js';
-import { validateArguments } from '@system/command-parser/argument-validator.js';
+import { parseCommandString } from 'user-interfaces/cli-shared/command-parser/string-parser.js';
+import { parseFunctionArguments } from 'user-interfaces/cli-shared/command-parser/function-parser.js';
+import { convertArgumentInstances } from 'user-interfaces/cli-shared/command-parser/argument-converter.js';
+import { validateArguments } from 'user-interfaces/cli-shared/command-parser/argument-validator.js';
 // import { formatValidationErrors } from '../../utils/error-formatting.js'; // This doesn't exist yet
 import process from 'process'; // Keep Node imports
 

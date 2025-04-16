@@ -1,10 +1,10 @@
 import readline from 'readline';
 
 // Added new imports
-import { parseCommandString } from '@system/command-parser/string-parser.js';
-import { parseFunctionArguments } from '@system/command-parser/function-parser.js';
-import { convertArgumentInstances, ConversionError, ConvertedArgumentValue } from '@system/command-parser/argument-converter.js'; // Added ConversionError, ConvertedArgumentValue
-import { validateArguments } from '@system/command-parser/argument-validator.js';
+import { parseCommandString } from 'user-interfaces/cli-shared/command-parser/string-parser.js';
+import { parseFunctionArguments } from 'user-interfaces/cli-shared/command-parser/function-parser.js';
+import { convertArgumentInstances, ConversionError, ConvertedArgumentValue } from 'user-interfaces/cli-shared/command-parser/argument-converter.js'; // Added ConversionError, ConvertedArgumentValue
+import { validateArguments } from 'user-interfaces/cli-shared/command-parser/argument-validator.js';
 import { FunctionDefinition, ArgumentInstance, RestArgumentInstance, ArgumentDefinition, LibraryDefinition } from '@system/command-types.js'; // Added ArgumentDefinition
 
 // Updated type for libraries

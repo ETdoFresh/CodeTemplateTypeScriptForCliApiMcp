@@ -11,8 +11,8 @@ import {
   ArgumentInstance,
   RestArgumentInstance,
 } from '@system/command-types.js';
-import { convertArgumentInstances } from '@system/command-parser/argument-converter.js'; // Removed ArgumentConversionError import
-import { validateArguments } from '@system/command-parser/argument-validator.js'; // Removed formatArgumentErrors import
+import { convertArgumentInstances } from 'user-interfaces/cli-shared/command-parser/argument-converter.js'; // Removed ArgumentConversionError import
+import { validateArguments } from 'user-interfaces/cli-shared/command-parser/argument-validator.js'; // Removed formatArgumentErrors import
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 

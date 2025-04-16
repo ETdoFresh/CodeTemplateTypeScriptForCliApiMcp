@@ -23,7 +23,7 @@
     "src/**/*",
     "libraries/**/*",
     "user-interfaces/**/*"
-  ],
+, "library-core/types.ts"  ],
   "exclude": [
     "node_modules",
     "dist",
