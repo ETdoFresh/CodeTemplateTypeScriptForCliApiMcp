@@ -107,14 +107,25 @@ export const packRemote: FunctionDefinition = {
     { name: 'noDefaultPatterns', type: 'boolean', description: 'Disable default ignore patterns.', optional: true, defaultValue: false },
   ],
   restArgument: undefined,
-  returnType: { name: 'status', type: 'string', description: 'Indicates completion status (Promise resolves on success)', optional: true },
-  function: async (optionsInput: any) => { // Keep original implementation
-    // Adjusted destructuring to handle both 'directory' and 'outputDirectory'
-    const { github_repo, directory, outputDirectory: explicitOutputDirectory, ...restOptions } = optionsInput;
-
+  returnType: { name: 'packedContent', type: 'string', description: 'The generated packed codebase content (if outputTarget is stdout)', optional: true },
+  function: async (
+    directory: string,
+    github_repo: string,
+    includePatterns?: string,
+    ignorePatterns?: string,
+    outputFormat?: string,
+    outputTarget?: string,
+    explicitOutputDirectory?: string, // Renamed from outputDirectory in definition for clarity
+    removeComments?: boolean,
+    removeEmptyLines?: boolean,
+    fileSummary?: boolean,
+    directoryStructure?: boolean,
+    noGitignore?: boolean,
+    noDefaultPatterns?: boolean
+  ): Promise<string | void> => {
     let tempDir: string | undefined;
     // Determine the final output directory: use explicitOutputDirectory if provided, otherwise fall back to the 'directory' argument.
-    const targetOutputDirectory = explicitOutputDirectory || directory;
+    const targetOutputDirectory = explicitOutputDirectory || directory; // Use positional args
     if (!targetOutputDirectory) {
         throw new Error("Output directory must be specified via 'directory' or 'outputDirectory' argument.");
     }
@@ -124,7 +135,7 @@ export const packRemote: FunctionDefinition = {
     try {
       tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'repopack-clone-'));
 
-      // --- Start URL Parsing ---
+      // --- Start URL Parsing --- (Uses positional github_repo)
       let baseCloneUrl: string;
       let subDirectoryPath = '';
 
@@ -202,9 +213,18 @@ export const packRemote: FunctionDefinition = {
 
       // --- Prepare Options for packInternal ---
       const options: PackCodebaseOptions = {
-        ...restOptions, // Pass through include/exclude patterns, formatting options etc.
-        directory: scanDirectory, // <<< Critical change: Pack the specific subdirectory
+        directory: scanDirectory, // This is the *source* directory for packInternal (the cloned subdir)
+        includePatterns: includePatterns,
+        ignorePatterns: ignorePatterns,
+        outputFormat: (outputFormat || 'xml') as 'xml' | 'md' | 'txt',
+        outputTarget: (outputTarget || 'stdout') as 'stdout' | 'file' | 'clipboard',
         outputTargetDirectory: originalOutputDirectoryNormalized, // Where the final output file should go
+        removeComments: removeComments || false,
+        removeEmptyLines: removeEmptyLines || false,
+        fileSummary: fileSummary === undefined ? true : fileSummary,
+        directoryStructure: directoryStructure === undefined ? true : directoryStructure,
+        noGitignore: noGitignore || false,
+        noDefaultPatterns: noDefaultPatterns || false,
         sourceIdentifier: github_repo, // Use the original full URL in the output summary
         github_repo: github_repo,      // Keep original URL info if needed later
         repoOwner,
@@ -214,8 +234,9 @@ export const packRemote: FunctionDefinition = {
 
 
       console.log(`[packRemote] Calling packInternal for directory: ${options.directory}`);
-      await packInternal(options);
+      const result = await packInternal(options);
       console.log(`[packRemote] Successfully returned from packInternal.`);
+      return result;
 
     } catch (error: any) {
        // Ensure the specific error is propagated
