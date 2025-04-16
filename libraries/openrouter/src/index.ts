@@ -35,7 +35,7 @@ export const call_openrouter: FunctionDefinition = {
     description: 'The completion result from OpenRouter',
     // optional is omitted, meaning required
   },
-  function: async (args: any): Promise<string> => { // Signature changed to args: any as requested
+  function: async (prompt: string, model?: string, temperature?: number): Promise<string> => {
     const API_KEY = process.env.OPENROUTER_API_KEY;
     const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
     const REFERRER = process.env.OPENROUTER_REFERRER || "mcp://server/openrouter"; // Default or from env
@@ -50,12 +50,13 @@ export const call_openrouter: FunctionDefinition = {
       // NOTE: Accessing args directly (args.model, args.prompt) assumes the execution
       // layer still passes an object. This might need adjustment later when the
       // execution logic is updated to handle individual arguments based on FunctionDefinition.
-      console.error(`Calling OpenRouter: Model=${args.model}, Temp=${args.temperature}`); // Log params to stderr
+      // Use the positional arguments directly
+      console.error(`Calling OpenRouter: Model=${model}, Temp=${temperature}`); // Log params to stderr
 
       const requestBody = {
-        model: args.model, // Assumes args.model exists
-        messages: [{ role: "user", content: args.prompt }], // Assumes args.prompt exists
-        temperature: args.temperature, // Assumes args.temperature exists
+        model: model, // Use the model argument
+        messages: [{ role: "user", content: prompt }], // Use the prompt argument
+        temperature: temperature, // Use the temperature argument
       };
 
       const response = await fetch(API_URL, {
